@@ -40,22 +40,26 @@ self.onmessage = async (e) => {
       '../server/game/villager-ai.js',
       '../server/game/combat.js',
       '../server/game/npcs.js',
+      '../server/game/GameRoom.js',
     ];
+
+    // First pass: fetch each file to verify HTTP status and MIME type
     for (const m of mods) {
-      await import(m);
-      self.postMessage(JSON.stringify({ type: '_workerImported', mod: m }));
+      const url = new URL(m, import.meta.url).href;
+      const r = await fetch(url);
+      const ct = r.headers.get('content-type') || 'none';
+      self.postMessage(JSON.stringify({
+        type: '_workerImported',
+        mod: `${m.split('/').pop()} → ${r.status} ${ct.split(';')[0]}`,
+      }));
+      if (!r.ok) throw new Error(`${m} HTTP ${r.status}`);
     }
 
-    // Fetch-diagnose GameRoom.js before trying to import it
-    const grUrl = new URL('../server/game/GameRoom.js', import.meta.url).href;
-    const grResp = await fetch(grUrl);
-    self.postMessage(JSON.stringify({
-      type: '_workerImported',
-      mod: `fetch GameRoom.js → ${grResp.status} ${grResp.headers.get('content-type')}`,
-    }));
-    if (!grResp.ok) throw new Error(`GameRoom.js fetch ${grResp.status}`);
-
-    const { GameRoom } = await import(grUrl);
+    // Second pass: import
+    for (const m of mods) {
+      await import(new URL(m, import.meta.url).href);
+    }
+    const { GameRoom } = await import(new URL('../server/game/GameRoom.js', import.meta.url).href);
 
     room = new GameRoom('sp');
     room._broadcastRaw = (str) => {
