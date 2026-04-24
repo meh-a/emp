@@ -13,12 +13,20 @@ function netConnect(playerName) {
   _netPlayerName = (playerName || 'Wanderer').trim().slice(0, 18) || 'Wanderer';
   return new Promise(resolve => {
     _seedResolve = resolve;
-    _worker = new Worker('/singleplayer/sp-worker.js', { type: 'module' });
+    _worker = new Worker('singleplayer/sp-worker.js', { type: 'module' });
     _worker.onmessage = (e) => {
       let msg;
       try { msg = JSON.parse(e.data); } catch { return; }
       _handleServerMessage(msg);
     };
+    _worker.onerror = (e) => {
+      console.error('[sp-worker] error:', e.message, e.filename, e.lineno);
+      const bar = document.getElementById('loading-bar-fill');
+      if (bar) bar.style.background = '#c04030';
+      const sub = document.getElementById('loading-sub');
+      if (sub) sub.textContent = 'Worker error: ' + e.message;
+    };
+    _worker.onmessageerror = (e) => console.error('[sp-worker] message error:', e);
     _worker.postMessage({ _init: true, playerName: _netPlayerName });
   });
 }
@@ -54,6 +62,18 @@ function _handleServerMessage(msg) {
       break;
     case 'state':
       _applyState(msg);
+      break;
+    case '_workerReady':
+      console.log('[sp] worker script loaded');
+      document.getElementById('loading-sub').textContent = 'Worker loaded, importing game…';
+      break;
+    case '_workerImported':
+      console.log('[sp] game modules imported');
+      document.getElementById('loading-sub').textContent = 'Generating world…';
+      break;
+    case '_error':
+      console.error('[sp-worker error]', msg.message, msg.stack);
+      document.getElementById('loading-sub').textContent = 'Error: ' + msg.message;
       break;
   }
 }
