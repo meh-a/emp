@@ -4,7 +4,6 @@ let _worker        = null;
 let _seedResolve   = null;
 let myKingdomId    = 0;
 let _netPlayerName = 'Wanderer';
-let _pendingSettle = false;
 let _accountTier4Slots = 0;
 let _accountTier5Slots = 0;
 let _lastStateTime = 0;
