@@ -67,10 +67,13 @@ function _handleServerMessage(msg) {
       console.log('[sp] worker script loaded');
       document.getElementById('loading-sub').textContent = 'Worker loaded, importing game…';
       break;
-    case '_workerImported':
-      console.log('[sp] game modules imported');
-      document.getElementById('loading-sub').textContent = 'Generating world…';
+    case '_workerImported': {
+      const short = msg.mod ? msg.mod.split('/').pop() : '?';
+      console.log('[sp] importing:', msg.mod);
+      const sub = document.getElementById('loading-sub');
+      if (sub) sub.textContent = 'Loading ' + short + '…';
       break;
+    }
     case '_error':
       console.error('[sp-worker error]', msg.message, msg.stack);
       document.getElementById('loading-sub').textContent = 'Error: ' + msg.message;
