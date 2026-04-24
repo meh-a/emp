@@ -1,6 +1,4 @@
 // ── Singleplayer Web Worker ──────────────────────────────────────
-// Runs the full server-side game engine in a browser worker thread.
-// Communicates with the main thread via postMessage instead of WebSocket.
 
 // Polyfill Node.js Buffer for server game files
 globalThis.Buffer = {
@@ -10,11 +8,8 @@ globalThis.Buffer = {
   }
 };
 
-import { GameRoom } from '../server/game/GameRoom.js';
-
 let room = null;
 
-// Fake WebSocket object — send() posts to main thread instead of over the network
 const fakeWs = {
   send(data) { self.postMessage(data); },
   close() {},
@@ -23,26 +18,36 @@ const fakeWs = {
 
 self.onmessage = async (e) => {
   const msg = e.data;
+  if (!msg || !msg._init) {
+    if (room) room.handleMessage(fakeWs, JSON.stringify(msg));
+    return;
+  }
 
-  if (msg && msg._init) {
-    const playerName = msg.playerName || 'Wanderer';
+  const playerName = msg.playerName || 'Wanderer';
+
+  // Signal that the worker script itself loaded fine
+  self.postMessage(JSON.stringify({ type: '_workerReady' }));
+
+  try {
+    // Dynamic import so module load errors are catchable
+    const { GameRoom } = await import('../server/game/GameRoom.js');
+
+    self.postMessage(JSON.stringify({ type: '_workerImported' }));
+
     room = new GameRoom('sp');
-
-    // Override broadcast so loading progress reaches the main thread during world gen
     room._broadcastRaw = (str) => {
-      const parsed = JSON.parse(str);
-      // Skip the 'ready' broadcast — we'll send a richer 'init' message manually below
-      if (parsed.type === 'ready') return;
+      try {
+        const parsed = JSON.parse(str);
+        if (parsed.type === 'ready') return;
+      } catch {}
       self.postMessage(str);
     };
 
     await room.init();
 
-    // Add the single player
     room.clients.add(fakeWs);
     const kingdom = room.addPlayer(fakeWs, playerName, true);
 
-    // Tell the main thread the game is ready
     self.postMessage(JSON.stringify({
       type:        'init',
       seed:        room.seed,
@@ -51,11 +56,8 @@ self.onmessage = async (e) => {
     }));
 
     room.start();
-    return;
-  }
-
-  // Forward any other message to the game room as if it came from the player's WebSocket
-  if (room) {
-    room.handleMessage(fakeWs, JSON.stringify(msg));
+  } catch (err) {
+    self.postMessage(JSON.stringify({ type: '_error', message: err.message, stack: err.stack }));
+    console.error('[sp-worker]', err);
   }
 };
