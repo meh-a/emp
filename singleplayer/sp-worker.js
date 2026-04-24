@@ -29,10 +29,33 @@ self.onmessage = async (e) => {
   self.postMessage(JSON.stringify({ type: '_workerReady' }));
 
   try {
-    // Dynamic import so module load errors are catchable
-    const { GameRoom } = await import('../server/game/GameRoom.js');
+    const mods = [
+      '../server/game/constants.js',
+      '../server/game/accounts.js',
+      '../server/game/sprites.js',
+      '../server/game/world.js',
+      '../server/game/Kingdom.js',
+      '../server/game/buildings.js',
+      '../server/game/villager-targets.js',
+      '../server/game/villager-ai.js',
+      '../server/game/combat.js',
+      '../server/game/npcs.js',
+    ];
+    for (const m of mods) {
+      await import(m);
+      self.postMessage(JSON.stringify({ type: '_workerImported', mod: m }));
+    }
 
-    self.postMessage(JSON.stringify({ type: '_workerImported' }));
+    // Fetch-diagnose GameRoom.js before trying to import it
+    const grUrl = new URL('../server/game/GameRoom.js', import.meta.url).href;
+    const grResp = await fetch(grUrl);
+    self.postMessage(JSON.stringify({
+      type: '_workerImported',
+      mod: `fetch GameRoom.js → ${grResp.status} ${grResp.headers.get('content-type')}`,
+    }));
+    if (!grResp.ok) throw new Error(`GameRoom.js fetch ${grResp.status}`);
+
+    const { GameRoom } = await import(grUrl);
 
     room = new GameRoom('sp');
     room._broadcastRaw = (str) => {
