@@ -484,7 +484,7 @@ export function updateVillagers(room, dt) {
       v.idleTimer-=dt;
       if (v.idleTimer<=0) {
         if (v._pfSlot % 3 !== room._pfRound % 3) {
-          v.idleTimer = 0.05; // stagger: defer to next designated tick (~100-200ms)
+          v.idleTimer = 0; // stagger: defer to next designated tick (~100-200ms) ahahaha no lag
         } else {
           startRoam(room, v);
         }
