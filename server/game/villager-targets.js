@@ -5,17 +5,7 @@ import { withinTerritory, findBuildTarget, assignBuilderTo, getTerritoryRadius }
 
 // Cached path lookup: reuses last computed path when src+dest+navVersion all match.
 export function findPathCached(room, v, tx, ty, blocked, maxExpand = 300) {
-  const c = v._pathCache;
-  if (c && c.destTx === tx && c.destTy === ty &&
-      c.srcTx === v.tx && c.srcTy === v.ty &&
-      c.navVer === room.navBlockedVersion) {
-    return c.path && c.path.length > 1 ? c.path.slice() : null;
-  }
-  const path = findPath(v.tx, v.ty, tx, ty, blocked, room, maxExpand);
-  v._pathCache = path
-    ? { destTx: tx, destTy: ty, srcTx: v.tx, srcTy: v.ty, navVer: room.navBlockedVersion, path }
-    : null;
-  return path;
+ return findPath(v.tx, v.ty, tx, ty, blocked, room, maxExpand);
 }
 
 export function findMineTarget(room, miner) {
