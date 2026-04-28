@@ -100,7 +100,7 @@ export const BLDG_TIER_COSTS = [
   null,                                                       // Farmland
   [{wood:20,iron:20},         {iron:40,stone:20}],           // Mine
   [{iron:30,gold:20},         {iron:60,gold:40}],            // Barracks
-  [{iron:50,stone:30},        {iron:80,gold:60}],            // Forge
+  [{iron:10,stone:30},        {iron:80,gold:60}],            // Forge
   null, null, null,                                          // 8,9,10
 ];
 
@@ -108,8 +108,8 @@ export const BLDG_TIER_COSTS = [
 export const WAVE_TC_HP    = [250, 340, 440, 560];
 export const WAVE_RAID_INT = [120, 95, 75, 60];
 export const WAVE_RAID_MIN = [3, 5, 8, 11];
-export const WAVE_RAID_MAX = [6, 10, 15, 20];
-export const WAVE_NAMES    = ['Iron Keep','Ashgate','Dreadholm','Shadowmere','Ironfang'];
+export const WAVE_RAID_MAX = [4, 8, 10, 15];
+export const WAVE_NAMES    = ['Iron Keep','Ashgate','Dreadholm','Shadowmere','Ironfang','ahhaa get cooked noob'];
 export const NEXT_WAVE_DELAY = 90;
 
 // Building costs
@@ -173,10 +173,10 @@ export const HOUSE_CAP    = 4;
 export const TRAIN_TIME   = 25;
 
 // Seasons
-export const SEASON_LENGTH = 10;   // days per season
+export const SEASON_LENGTH = 7;   // days per season
 export const SEASON_NAMES  = ['Spring','Summer','Autumn','Winter'];
 export const FARM_SPEED    = [1.1, 1.3, 0.9, 0.5]; // timer speed multiplier; winter yield is blocked separately
-export const REGROWTH_BASE = 60;   // seconds (was hardcoded in villager-ai)
+export const REGROWTH_BASE = 30;   // seconds (was hardcoded in villager-ai)
 export const REGROWTH_MULT = [1.0, 0.9, 1.1, 2.0]; // Winter doubles regrowth time
 
 // Building prerequisites for manual upgrade
