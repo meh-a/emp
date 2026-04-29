@@ -265,6 +265,10 @@ function updateHUD() {
   const foodChip = document.getElementById('food-chip');
   if (foodChip) foodChip.classList.toggle('res-low', food < villagers.length * 2);
 
+  // Save button — visible only while playing a settled game
+  const saveBtn = document.getElementById('save-btn');
+  if (saveBtn) saveBtn.classList.toggle('hidden', !settled || gameState !== 'playing');
+
   // Sync settled UI state (server is authoritative)
   if (settled && !_settledUiDone) {
     _settledUiDone = true;
@@ -926,6 +930,22 @@ async function init(playerName) {
 
   nameBtn.addEventListener('click', _joinGame);
   nameInput.addEventListener('keydown', e => { if (e.key === 'Enter') _joinGame(); });
+
+  // Continue from save
+  const continueBtn = document.getElementById('continue-btn');
+  if (continueBtn) {
+    const saveInfo = typeof getSavedGameInfo === 'function' ? getSavedGameInfo() : null;
+    if (saveInfo) {
+      continueBtn.textContent = `Continue · Day ${saveInfo.day} · ${saveInfo.playerName}`;
+      continueBtn.classList.remove('hidden');
+    }
+    continueBtn.addEventListener('click', () => {
+      _stopDemoView();
+      if (typeof queueSaveLoad === 'function') queueSaveLoad();
+      nameScreen.classList.add('hidden');
+      init(null);
+    });
+  }
 
   // Play Again: clean disconnect then return to name entry
   goBtn.addEventListener('click', () => {
