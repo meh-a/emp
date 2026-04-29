@@ -8,9 +8,51 @@ let _accountTier4Slots = 0;
 let _accountTier5Slots = 0;
 let _lastStateTime = 0;
 
+// ── Save / load ───────────────────────────────────────────────────
+const _LS_SAVE_KEY = 'empires_sp_save_v1';
+let _pendingSaveData = null;   // set by queueSaveLoad() before netConnect()
+
+function hasSavedGame() {
+  try { return !!localStorage.getItem(_LS_SAVE_KEY); } catch { return false; }
+}
+
+function getSavedGameInfo() {
+  try {
+    const raw = localStorage.getItem(_LS_SAVE_KEY);
+    if (!raw) return null;
+    const d = JSON.parse(raw);
+    return { day: d.day, playerName: d.playerName, timestamp: d.timestamp };
+  } catch { return null; }
+}
+
+function deleteSavedGame() {
+  try { localStorage.removeItem(_LS_SAVE_KEY); } catch {}
+}
+
+function queueSaveLoad() {
+  try {
+    const raw = localStorage.getItem(_LS_SAVE_KEY);
+    _pendingSaveData = raw ? JSON.parse(raw) : null;
+  } catch { _pendingSaveData = null; }
+}
+
+function saveGame() {
+  if (!_worker) return;
+  const btn = document.getElementById('save-btn');
+  if (btn) { btn.classList.add('saving'); btn.textContent = 'Saving…'; }
+  _worker.postMessage({ _save: true });
+}
+
 // ── Connect: spawn the worker and start the game ─────────────────
 function netConnect(playerName) {
-  _netPlayerName = (playerName || 'Wanderer').trim().slice(0, 18) || 'Wanderer';
+  const saveData = _pendingSaveData;
+  _pendingSaveData = null;
+
+  // When loading from save, use saved player name; otherwise use provided name
+  _netPlayerName = saveData
+    ? (saveData.playerName || 'Wanderer')
+    : ((playerName || 'Wanderer').trim().slice(0, 18) || 'Wanderer');
+
   return new Promise(resolve => {
     _seedResolve = resolve;
     _worker = new Worker('singleplayer/sp-worker.js', { type: 'module' });
@@ -27,7 +69,7 @@ function netConnect(playerName) {
       if (sub) sub.textContent = 'Worker error: ' + e.message;
     };
     _worker.onmessageerror = (e) => console.error('[sp-worker] message error:', e);
-    _worker.postMessage({ _init: true, playerName: _netPlayerName });
+    _worker.postMessage({ _init: true, playerName: _netPlayerName, saveData: saveData || undefined });
   });
 }
 
@@ -51,6 +93,15 @@ function _handleServerMessage(msg) {
     case 'init':
       myKingdomId = msg.myKingdomId ?? 0;
       if (msg.trees) trees = msg.trees;
+      // Restore explored fog when loading from save
+      if (msg.fogExplored && typeof fogExplored !== 'undefined') {
+        try {
+          const binary = atob(msg.fogExplored);
+          for (let i = 0; i < binary.length && i < fogExplored.length; i++) {
+            fogExplored[i] = binary.charCodeAt(i);
+          }
+        } catch {}
+      }
       if (_seedResolve) {
         _seedResolve(msg.seed);
         _seedResolve = null;
@@ -59,6 +110,19 @@ function _handleServerMessage(msg) {
           netSend({ type: 'account_login', username: _accountUsername || '', password: '', tier4Slots: _accountTier4Slots, tier5Slots: _accountTier5Slots });
         }
       }
+      break;
+    case 'save_data':
+      try {
+        localStorage.setItem(_LS_SAVE_KEY, JSON.stringify(msg.saveData));
+        notify('Game saved.', 'info');
+      } catch (e) {
+        notify('Save failed — storage may be full.', 'warn');
+      }
+      { const b = document.getElementById('save-btn'); if (b) { b.classList.remove('saving'); b.textContent = 'Save'; } }
+      break;
+    case 'save_error':
+      notify('Save failed: ' + (msg.message || 'unknown error'), 'warn');
+      { const b = document.getElementById('save-btn'); if (b) { b.classList.remove('saving'); b.textContent = 'Save'; } }
       break;
     case 'state':
       _applyState(msg);
