@@ -130,7 +130,7 @@
       border-radius: 3px;
       padding: 3px 8px;
     }
-    #go-offline-btn, #topbar-account-btn {
+    #go-offline-btn, #topbar-account-btn, #save-btn {
       font-family: 'Silkscreen', monospace; font-size: 0.52rem;
       letter-spacing: 1px; text-transform: uppercase;
       border-radius: 3px; padding: 3px 9px; cursor: pointer;
@@ -148,6 +148,13 @@
       border: 1px solid rgba(200,146,42,0.28);
     }
     #topbar-account-btn:hover { background: rgba(200,146,42,0.18); color: #e8c060; }
+    #save-btn {
+      color: #70c890; background: rgba(40,160,80,0.08);
+      border: 1px solid rgba(60,180,90,0.28);
+    }
+    #save-btn:hover { background: rgba(40,160,80,0.20); color: #90e8b0; border-color: rgba(60,180,90,0.55); }
+    #save-btn.hidden { display: none; }
+    #save-btn.saving { opacity: 0.55; cursor: default; }
 
     /* ── Chat ── */
     #chat-wrap {
@@ -716,6 +723,17 @@
       background: linear-gradient(160deg, rgba(200,146,42,0.30) 0%, rgba(160,100,20,0.36) 100%);
       color: #ffd880;
     }
+    #continue-btn {
+      font-family: 'Silkscreen', monospace; font-size: 0.68rem; letter-spacing: 2px;
+      color: #70c890;
+      background: rgba(40,160,80,0.10);
+      border: 1px solid rgba(60,180,90,0.40); border-radius: 5px;
+      padding: 10px 40px; cursor: pointer; text-transform: uppercase; width: 100%;
+      margin-top: 8px;
+      transition: background 0.2s, color 0.2s, border-color 0.2s;
+    }
+    #continue-btn:hover { background: rgba(40,160,80,0.22); color: #a0f0c0; border-color: rgba(60,180,90,0.65); }
+    #continue-btn.hidden { display: none; }
 
     /* ── Account panel (inside modal) ── */
     .acc-label {
@@ -1134,6 +1152,7 @@
       <div class="hud-pill" id="day-display">Day 1</div>
       <div class="hud-pill" id="time-display">Morning</div>
       <div class="hud-pill" style="color:#6a9060;border-color:rgba(80,160,50,0.28)">Singleplayer</div>
+      <button id="save-btn" class="hidden" onclick="saveGame()">Save</button>
       <button id="topbar-account-btn" onclick="openAccountModal()">Account</button>
     </div>
   </div>
@@ -1283,6 +1302,7 @@
     </div>
     <input id="name-input" type="text" maxlength="18" placeholder="Your ruler's name" autocomplete="off" spellcheck="false">
     <button id="name-btn">Enter the Realm</button>
+    <button id="continue-btn" class="hidden">Continue</button>
     <button id="name-account-btn" onclick="openAccountModal()" style="margin-top:10px;width:100%;background:none;border:none;color:#5a3e14;font-family:inherit;font-size:0.58rem;letter-spacing:2px;cursor:pointer;text-transform:uppercase;padding:6px 0;transition:color 0.15s;" onmouseover="this.style.color='#c8922a'" onmouseout="this.style.color='#5a3e14'">Account / Sign In</button>
   </div>
 </div>
