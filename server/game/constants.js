@@ -114,18 +114,19 @@ export const NEXT_WAVE_DELAY = 90;
 
 // Building costs
 export const STRUCT_COST = [
-  {wood:0},
-  {wood:0},
-  {stone:0},
-  {stone:0},
-  {wood:0},
+  {wood:5},
+  {wood:6},
+  {stone:4},
+  {stone:8},
+  {wood:3},
   {wood:8},
-  {wood:0,stone:0},
-  {wood:0,stone:0},
-  {wood:0},
-  {wood:0, stone:0, iron:0},
-  {stone:0},                   // Gate
+  {wood:6,stone:4},
+  {wood:4,stone:6},
+  {wood:1},
+  {wood:40, stone:20, iron:4},
+  {stone:5},                   // Gate
 ];
+
 
 // Adjacency bonus table
 export const ADJACENCY_TABLE = {
