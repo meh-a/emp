@@ -187,16 +187,16 @@ const RAID_SIZE_MAX   = 10;
 // ── Building costs (matches STRUCT_NAME order) ──────────────────
 // [House, Bakery, Wall, Tower, Farmland, Mine, Barracks, Forge, Road, Outpost]
 const STRUCT_COST = [
-  {wood:5},                    // House
-  {wood:6},                    // Bakery
-  {stone:4},                   // Wall
-  {stone:8},                   // Tower
-  {wood:3},                    // Farmland
-  {wood:8},                    // Mine
-  {wood:6,stone:4},            // Barracks
-  {wood:4,stone:6},            // Forge
-  {wood:1},                    // Road (instant, no builder)
-  {wood:40, stone:20, iron:4}, // Outpost (Camp)
+  {wood:0},                    // House
+  {wood:0},                    // Bakery
+  {stone:0},                   // Wall
+  {stone:0},                   // Tower
+  {wood:0},                    // Farmland
+  {wood:0},                    // Mine
+  {wood:0,stone:0},            // Barracks
+  {wood:0,stone:0},            // Forge
+  {wood:0},                    // Road (instant, no builder)
+  {wood:0, stone:0, iron:0}, // Outpost (Camp)
   {stone:5},                   // Gate
 ];
 
@@ -211,7 +211,7 @@ const SEASON_NAMES  = ['Spring','Summer','Autumn','Winter'];
 const SPAWN_INTERVAL   = 45;   // seconds between new-villager checks
 const MAX_VILLAGERS    = 20;   // soft pop cap
 const BASIC_UPGRADE_TIME = 100; // seconds before a basic auto-upgrades
-const GOLD_TICK        = 20;   // seconds between passive gold income
+const GOLD_TICK        = 0.1;   // seconds between passive gold income
 
 // ── Buildings state ──────────────────────────────────
 let buildings  = [];
