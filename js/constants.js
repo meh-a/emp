@@ -148,7 +148,7 @@ const MINE_IRON_CHANCE = 0.25; // chance tier-3 miner also gets iron
 // Tool tiers: 0=wood, 1=stone, 2=iron  (Woodcutter, Builder, StoneMiner benefit)
 const TOOL_SPEED    = [1.0, 1.30, 1.65]; // work-speed multiplier per tool tier
 const CRAFT_TIME    = [0, 18, 28];       // seconds to forge stone/iron tools (index = tier)
-const CRAFT_COST    = [{}, {stone:4}, {iron:5}]; // resources consumed per tool tier
+const CRAFT_COST    = [{}, {stone:4}, {iron:2}]; // resources consumed per tool tier
 const REPAIR_TIME   = 6;    // seconds per repair cycle
 const REPAIR_RATE   = 20;   // HP restored per cycle
 const REPAIR_STONE  = 1;    // stone consumed per cycle
