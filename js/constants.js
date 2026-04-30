@@ -214,7 +214,7 @@ const SEASON_NAMES  = ['Spring','Summer','Autumn','Winter'];
 const SPAWN_INTERVAL   = 45;   // seconds between new-villager checks
 const MAX_VILLAGERS    = 20;   // soft pop cap
 const BASIC_UPGRADE_TIME = 100; // seconds before a basic auto-upgrades
-const GOLD_TICK        = 0.1;   // seconds between passive gold income
+const GOLD_TICK        = 20;   // seconds between passive gold income
 
 // ── Buildings state ──────────────────────────────────
 let buildings  = [];
