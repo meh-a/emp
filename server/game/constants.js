@@ -32,7 +32,7 @@ export const ROAM_RADIUS    = 7;
 export const PATROL_RADIUS  = 12;
 export const POSSESS_SPEED  = 4.5;
 export const BASIC_UPGRADE_TIME = 100;
-export const GOLD_TICK      = 100;
+export const GOLD_TICK      = 20;
 export const SPAWN_INTERVAL = 45;
 export const MAX_VILLAGERS  = 20;
 
