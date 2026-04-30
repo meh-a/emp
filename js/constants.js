@@ -182,23 +182,26 @@ const ENEMY_SPEED     = 1.8;   // tiles/sec
 // Raid pacing
 const RAID_INTERVAL   = 300;   // seconds between raids (at base territory)
 const RAID_SIZE_MIN   = 3;
-const RAID_SIZE_MAX   = 10;
+const RAID_SIZE_MAX   = 6;
 
 // ── Building costs (matches STRUCT_NAME order) ──────────────────
 // [House, Bakery, Wall, Tower, Farmland, Mine, Barracks, Forge, Road, Outpost]
 const STRUCT_COST = [
-  {wood:0},                    // House
-  {wood:0},                    // Bakery
-  {stone:0},                   // Wall
-  {stone:0},                   // Tower
-  {wood:0},                    // Farmland
-  {wood:0},                    // Mine
-  {wood:0,stone:0},            // Barracks
-  {wood:0,stone:0},            // Forge
-  {wood:0},                    // Road (instant, no builder)
-  {wood:0, stone:0, iron:0}, // Outpost (Camp)
+ export const STRUCT_COST = [
+  {wood:5},
+  {wood:6},
+  {stone:4},
+  {stone:8},
+  {wood:3},
+  {wood:8},
+  {wood:6,stone:4},
+  {wood:4,stone:6},
+  {wood:1},
+  {wood:40, stone:20, iron:4},
   {stone:5},                   // Gate
 ];
+
+
 
 // Tracks how many of each building type has been placed (for cost scaling)
 let buildCounts = new Array(STRUCT_COST.length).fill(0);
