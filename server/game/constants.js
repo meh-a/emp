@@ -127,7 +127,6 @@ export const STRUCT_COST = [
   {stone:5},                   // Gate
 ];
 
-
 // Adjacency bonus table
 export const ADJACENCY_TABLE = {
   1: { 4: 0.30, 9: 0.20 },   // Bakery: +20% near Outpost
