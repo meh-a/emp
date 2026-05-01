@@ -100,7 +100,7 @@ export const BLDG_TIER_COSTS = [
   null,                                                       // Farmland
   [{wood:20,iron:20},         {iron:40,stone:20}],           // Mine
   [{iron:30,gold:20},         {iron:60,gold:40}],            // Barracks
-  [{iron:10,stone:30},        {iron:80,gold:60}],            // Forge
+  [{iron:5,stone:30},        {iron:10,gold:60}],            // Forge
   null, null, null,                                          // 8,9,10
 ];
 
