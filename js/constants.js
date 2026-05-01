@@ -148,7 +148,7 @@ const MINE_IRON_CHANCE = 0.25; // chance tier-3 miner also gets iron
 // Tool tiers: 0=wood, 1=stone, 2=iron  (Woodcutter, Builder, StoneMiner benefit)
 const TOOL_SPEED    = [1.0, 1.30, 1.65]; // work-speed multiplier per tool tier
 const CRAFT_TIME    = [0, 18, 28];       // seconds to forge stone/iron tools (index = tier)
-const CRAFT_COST    = [{}, {stone:4}, {iron:2}]; // resources consumed per tool tier
+const CRAFT_COST    = [{}, {stone:4}, {iron:5}]; // resources consumed per tool tier
 const REPAIR_TIME   = 6;    // seconds per repair cycle
 const REPAIR_RATE   = 20;   // HP restored per cycle
 const REPAIR_STONE  = 1;    // stone consumed per cycle
@@ -182,26 +182,23 @@ const ENEMY_SPEED     = 1.8;   // tiles/sec
 // Raid pacing
 const RAID_INTERVAL   = 300;   // seconds between raids (at base territory)
 const RAID_SIZE_MIN   = 3;
-const RAID_SIZE_MAX   = 6;
+const RAID_SIZE_MAX   = 10;
 
 // ── Building costs (matches STRUCT_NAME order) ──────────────────
 // [House, Bakery, Wall, Tower, Farmland, Mine, Barracks, Forge, Road, Outpost]
 const STRUCT_COST = [
- export const STRUCT_COST = [
-  {wood:5},
-  {wood:6},
-  {stone:4},
-  {stone:8},
-  {wood:3},
-  {wood:8},
-  {wood:6,stone:4},
-  {wood:4,stone:6},
-  {wood:1},
-  {wood:40, stone:20, iron:4},
+  {wood:5},                    // House
+  {wood:6},                    // Bakery
+  {stone:4},                   // Wall
+  {stone:8},                   // Tower
+  {wood:3},                    // Farmland
+  {wood:8},                    // Mine
+  {wood:6,stone:4},            // Barracks
+  {wood:4,stone:6},            // Forge
+  {wood:1},                    // Road (instant, no builder)
+  {wood:40, stone:20, iron:4}, // Outpost (Camp)
   {stone:5},                   // Gate
 ];
-
-
 
 // Tracks how many of each building type has been placed (for cost scaling)
 let buildCounts = new Array(STRUCT_COST.length).fill(0);
