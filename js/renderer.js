@@ -8,7 +8,7 @@ const ctx      = canvas.getContext('2d');
 const mmCanvas = document.getElementById('minimap');
 const mmCtx    = mmCanvas.getContext('2d');
 const _groundBuildingAt = new Map();
-let _groundBldgCount = -1;
+let _groundBldgsRef = null;
 
 function resize() { canvas.width = innerWidth; canvas.height = innerHeight; }
 resize();
@@ -240,7 +240,7 @@ function isWallAt(tx, ty) {
   return buildings.some(b => b.type === 2 && b.complete && b.tx === tx && b.ty === ty);
 }
 
-function drawConnectedWall(b, sx, sy, sz, enemyTint) {
+function drawConnectedWall(b, sx, sy, sz) {
   const tx = b.tx, ty = b.ty;
   const hasN = isWallAt(tx, ty - 1);
   const hasS = isWallAt(tx, ty + 1);
@@ -314,10 +314,6 @@ function drawConnectedWall(b, sx, sy, sz, enemyTint) {
   if (!hasW) drawMerlonsH(sx,         sy,          h, true);
   if (!hasE) drawMerlonsH(sx + w - mT, sy,         h, true);
 
-  if (enemyTint) {
-    ctx.fillStyle = 'rgba(180,20,20,0.28)';
-    ctx.fillRect(sx, sy, w, h);
-  }
 }
 
 function drawBuildingObj(b, sz) {
@@ -347,7 +343,7 @@ function drawBuildingObj(b, sz) {
     ctx.fillRect(px2, py2, Math.floor(pw * b.progress), ph);
   } else {
     if (b.type === 2) {
-      drawConnectedWall(b, sx, tsy, bw, false);
+      drawConnectedWall(b, sx, tsy, bw);
     } else {
       drawSpriteH(BSTAMP[b.type], BSTAMP_PAL[b.type], sx, sy, bw, bh);
     }
@@ -404,11 +400,9 @@ function drawEnemyBuildingObj(b, sz) {
   const bh  = sz * hm;
   const sy  = tsy - (bh - sz);
   if (b.type === 2) {
-    drawConnectedWall(b, sx, tsy, sz, true);
+    drawConnectedWall(b, sx, tsy, sz);
   } else {
     drawSpriteH(BSTAMP[b.type], BSTAMP_PAL[b.type], sx, sy, sz, bh);
-    ctx.fillStyle = 'rgba(180,20,20,0.28)';
-    ctx.fillRect(sx, sy, Math.ceil(sz), Math.ceil(bh));
   }
   if (b.hp < b.maxHp) drawHealthBar(sx, sy, b.hp, b.maxHp, sz);
 }
@@ -441,12 +435,7 @@ function drawEnemyTC(ek, sz) {
   const sy = Math.floor(ek.ty * sz - camY);
   const fi = ek.ty * MAP_W + ek.tx;
   if (!fogExplored[fi]) return; // hidden in fog
-  ctx.save();
   drawSprite(TC_STAMP, TC_PAL, sx, sy, sz);
-  // Red tint overlay
-  ctx.fillStyle = 'rgba(160,20,20,0.42)';
-  ctx.fillRect(Math.floor(sx), Math.floor(sy), Math.ceil(sz), Math.ceil(sz));
-  ctx.restore();
   if (ek.hp < ek.maxHp) drawHealthBar(sx, sy, ek.hp, ek.maxHp, sz);
   if (sz >= 22) {
     const ly = sy - Math.max(4, sz*0.14) - (ek.hp < ek.maxHp ? sz*0.10 : 0);
@@ -1130,9 +1119,9 @@ function render() {
   const c1=Math.min(MAP_W-1, Math.ceil((camX+canvas.width)/sz));
   const r1=Math.min(MAP_H-1, Math.ceil((camY+canvas.height)/sz));
 
-  // Ground-building lookup (farmland=4, mine=5) — rebuilt only when building count changes
-  if (_groundBldgCount !== buildings.length) {
-    _groundBldgCount = buildings.length;
+  // Ground-building lookup (farmland=4, mine=5) — rebuilt whenever state arrives (new array ref)
+  if (_groundBldgsRef !== buildings) {
+    _groundBldgsRef = buildings;
     _groundBuildingAt.clear();
     for (const b of buildings) {
       if (b.type === 4 || b.type === 5) _groundBuildingAt.set(b.ty * MAP_W + b.tx, b);
