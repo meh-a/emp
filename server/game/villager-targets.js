@@ -1,82 +1,91 @@
 // ── server/game/villager-targets.js ──
-import { MAP_W, MAP_H, ROAM_RADIUS, VROLE } from './constants.js';
+import { MAP_W, MAP_H, ROAM_RADIUS, VROLE, VILLAGER_PATH_RADIUS } from './constants.js';
 import { WALKABLE_TILES, findPath } from './world.js';
 import { withinTerritory, findBuildTarget, assignBuilderTo, getTerritoryRadius } from './buildings.js';
 
-// Cached path lookup: reuses last computed path when src+dest+navVersion all match.
+// Reusable buffers for doRoam BFS — avoids 40KB allocation per call
+const _roamVis      = new Uint8Array(MAP_W * MAP_H);
+const _roamVisDirty = [];
+const _roamQ        = [];
+const _roamCands    = [];
+
 export function findPathCached(room, v, tx, ty, blocked, maxExpand = 300) {
  return findPath(v.tx, v.ty, tx, ty, blocked, room, maxExpand);
 }
 
 export function findMineTarget(room, miner) {
-  const claimed = new Set(
-    room.villagers.filter(v => v.mineTarget && v.id !== miner.id).map(v => v.mineTarget.id)
-  );
+  const claimed = room._claimed.mine;
   let best = null, bestDist = Infinity;
   for (const b of room.buildings) {
     if (b.type !== 5 || !b.complete) continue;
     if (claimed.has(b.id)) continue;
     const d = Math.abs(b.tx - miner.tx) + Math.abs(b.ty - miner.ty);
+    if (d > VILLAGER_PATH_RADIUS) continue;
     if (d < bestDist) { bestDist = d; best = b; }
   }
+  if (best) claimed.add(best.id);
   return best;
 }
 
 export function findTowerTarget(room, archer) {
-  const claimed = new Set(
-    room.villagers.filter(v => v.towerTarget != null && v.id !== archer.id).map(v => v.towerTarget)
-  );
+  const claimed = room._claimed.tower;
   let best = null, bestDist = Infinity;
   for (const b of room.buildings) {
     if (b.type !== 3 || !b.complete) continue;
     if (claimed.has(b.id)) continue;
     const d = Math.abs(b.tx - archer.tx) + Math.abs(b.ty - archer.ty);
+    if (d > VILLAGER_PATH_RADIUS) continue;
     if (d < bestDist) { bestDist = d; best = b; }
   }
+  if (best) claimed.add(best.id);
   return best;
 }
 
 export function findForgeTarget(room, smith) {
-  const claimed = new Set(
-    room.villagers.filter(v => v.forgeTarget && v.id !== smith.id).map(v => v.forgeTarget.id)
-  );
+  const claimed = room._claimed.forge;
   let best = null, bestDist = Infinity;
   for (const b of room.buildings) {
     if (b.type !== 7 || !b.complete) continue;
     if (claimed.has(b.id)) continue;
     const d = Math.abs(b.tx - smith.tx) + Math.abs(b.ty - smith.ty);
+    if (d > VILLAGER_PATH_RADIUS) continue;
     if (d < bestDist) { bestDist = d; best = b; }
   }
+  if (best) claimed.add(best.id);
   return best;
 }
 
 export function doRoam(room, v) {
-  const bfsVis = new Uint8Array(MAP_W * MAP_H);
-  const bfsQ = [];
+  // Reset reusable buffers via dirty list — no heap allocation
+  for (let i = 0; i < _roamVisDirty.length; i++) _roamVis[_roamVisDirty[i]] = 0;
+  _roamVisDirty.length = 0;
+  _roamQ.length = 0;
+  _roamCands.length = 0;
+
   const si = v.ty * MAP_W + v.tx;
-  bfsVis[si] = 1;
-  bfsQ.push(si);
-  const candidates = [];
-  for (let qi = 0; qi < bfsQ.length; qi++) {
-    const idx = bfsQ[qi];
+  _roamVis[si] = 1; _roamVisDirty.push(si);
+  _roamQ.push(si);
+
+  for (let qi = 0; qi < _roamQ.length; qi++) {
+    const idx = _roamQ[qi];
     const bx = idx % MAP_W, by = (idx / MAP_W) | 0;
     const dist = Math.abs(bx - v.tx) + Math.abs(by - v.ty);
     if (dist >= 1) {
       const inTerritory = !room.settled || !room.townCenter || v.role === VROLE.WOODCUTTER || withinTerritory(room, bx, by);
-      if (inTerritory) candidates.push(idx);
+      if (inTerritory) _roamCands.push(idx);
     }
     if (dist >= ROAM_RADIUS) continue;
     for (const [dx, dy] of [[-1,0],[1,0],[0,-1],[0,1]]) {
       const nx = bx + dx, ny = by + dy;
       if (nx < 0 || nx >= MAP_W || ny < 0 || ny >= MAP_H) continue;
       const ni = ny * MAP_W + nx;
-      if (bfsVis[ni] || !WALKABLE_TILES.has(room.mapTiles[ny][nx]) || room.villagerBlocked[ni]) continue;
-      bfsVis[ni] = 1;
-      bfsQ.push(ni);
+      if (_roamVis[ni] || !WALKABLE_TILES.has(room.mapTiles[ny][nx]) || room.villagerBlocked[ni]) continue;
+      _roamVis[ni] = 1; _roamVisDirty.push(ni);
+      _roamQ.push(ni);
     }
   }
-  if (candidates.length > 0) {
-    const destIdx = candidates[Math.floor(Math.random() * candidates.length)];
+  if (_roamCands.length > 0) {
+    const destIdx = _roamCands[Math.floor(Math.random() * _roamCands.length)];
     const dx = destIdx % MAP_W, dy = (destIdx / MAP_W) | 0;
     const path = findPath(v.tx, v.ty, dx, dy, room.villagerBlocked, room, 200);
     if (path && path.length > 1) {
@@ -88,38 +97,39 @@ export function doRoam(room, v) {
 }
 
 export function findChopTarget(room, cutter) {
-  const claimedIds = new Set(
-    room.villagers.filter(v=>v.chopTarget&&v.id!==cutter.id).map(v=>v.chopTarget.id)
-  );
+  const claimed = room._claimed.chop;
   let best=null, bestDist=Infinity;
   for (const tree of room.trees) {
-    if (claimedIds.has(tree.id)) continue;
+    if (claimed.has(tree.id)) continue;
     const d=Math.abs(tree.tx-cutter.tx)+Math.abs(tree.ty-cutter.ty);
-    if (d>20) continue;
+    if (d > VILLAGER_PATH_RADIUS) continue;
     if (d<bestDist) { bestDist=d; best=tree; }
   }
+  if (best) claimed.add(best.id);
   return best;
 }
 
 export function findFarmTarget(room, farmer) {
-  const claimed = new Set(
-    room.villagers.filter(v=>v.farmTarget&&v.id!==farmer.id).map(v=>v.farmTarget.id)
-  );
+  const claimed = room._claimed.farm;
   for (const b of room.buildings) {
     if (b.type!==4||!b.complete) continue;
     if (claimed.has(b.id)) continue;
+    const d = Math.abs(b.tx - farmer.tx) + Math.abs(b.ty - farmer.ty);
+    if (d > VILLAGER_PATH_RADIUS) continue;
+    claimed.add(b.id);
     return b;
   }
   return null;
 }
 
 export function findBakeryTarget(room, baker) {
-  const claimed = new Set(
-    room.villagers.filter(v=>v.bakeryTarget&&v.id!==baker.id).map(v=>v.bakeryTarget.id)
-  );
+  const claimed = room._claimed.bakery;
   for (const b of room.buildings) {
     if (b.type!==1||!b.complete) continue;
     if (claimed.has(b.id)) continue;
+    const d = Math.abs(b.tx - baker.tx) + Math.abs(b.ty - baker.ty);
+    if (d > VILLAGER_PATH_RADIUS) continue;
+    claimed.add(b.id);
     return b;
   }
   return null;
@@ -221,6 +231,7 @@ export function startRoam(room, v) {
     }
   }
   if (v.role===VROLE.STONE_MINER) {
+    if (v.mineTarget) room._claimed.mine.delete(v.mineTarget.id);
     const mine=findMineTarget(room, v);
     if (mine) {
       v.mineTarget=mine;
@@ -232,6 +243,7 @@ export function startRoam(room, v) {
     doRoam(room, v); return;
   }
   if (v.role === VROLE.ARCHER) {
+    if (v.towerTarget != null) room._claimed.tower.delete(v.towerTarget);
     const tower = findTowerTarget(room, v);
     if (tower) {
       if (v.tx===tower.tx&&v.ty===tower.ty) {
@@ -247,6 +259,7 @@ export function startRoam(room, v) {
     doRoam(room, v); return;
   }
   if (v.role===VROLE.TOOLSMITH) {
+    if (v.forgeTarget) room._claimed.forge.delete(v.forgeTarget.id);
     const forge=findForgeTarget(room, v);
     if (forge) {
       v.forgeTarget=forge;
@@ -258,18 +271,20 @@ export function startRoam(room, v) {
     doRoam(room, v); return;
   }
   if (v.role === VROLE.MECHANIC && room.settled) {
-    const claimedRepair = new Set(
-      room.villagers.filter(o => o.repairTarget != null && o.id !== v.id).map(o => o.repairTarget)
-    );
+    if (v.repairTarget != null) room._claimed.repair.delete(v.repairTarget);
+    const claimedRepair = room._claimed.repair;
     let worst = null, worstPct = 1.0;
     for (const b of room.buildings) {
       if (!b.complete || b.hp >= b.maxHp) continue;
       if (!withinTerritory(room, b.tx, b.ty)) continue;
       if (claimedRepair.has(b.id)) continue;
+      const d = Math.abs(b.tx - v.tx) + Math.abs(b.ty - v.ty);
+      if (d > VILLAGER_PATH_RADIUS) continue;
       const pct = b.hp / b.maxHp;
       if (pct < worstPct) { worstPct = pct; worst = b; }
     }
     if (worst) {
+      claimedRepair.add(worst.id);
       v.repairTarget = worst.id;
       if (v.tx === worst.tx && v.ty === worst.ty) {
         v.state = 'repairing'; v.repairTimer = 0;
@@ -285,6 +300,7 @@ export function startRoam(room, v) {
     doRoam(room, v); return;
   }
   if (v.role===VROLE.BAKER) {
+    if (v.bakeryTarget) room._claimed.bakery.delete(v.bakeryTarget.id);
     const bakery=findBakeryTarget(room, v);
     if (bakery) {
       v.bakeryTarget=bakery;
@@ -316,6 +332,7 @@ export function startRoam(room, v) {
     doRoam(room, v); return;
   }
   if (v.role===VROLE.FARMER) {
+    if (v.farmTarget) room._claimed.farm.delete(v.farmTarget.id);
     const farm=findFarmTarget(room, v);
     if (farm) {
       v.farmTarget=farm;
