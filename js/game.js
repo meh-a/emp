@@ -25,6 +25,7 @@ const vpanel  = document.getElementById('villager-panel');
 const vpName  = document.getElementById('vp-name');
 const vpRole  = document.getElementById('vp-role');
 const vpStatus= document.getElementById('vp-status');
+let _vpLastId = null, _vpLastRole = null, _vpLastState = null;
 
 function updateVillagerPanel() {
   if (activeGroup !== null && !selectedVillager) {
@@ -45,7 +46,7 @@ function updateVillagerPanel() {
     const groupDiv = document.getElementById('vp-group'); if (groupDiv) groupDiv.style.display = 'none';
     return;
   }
-  if (!selectedVillager) { vpanel.classList.remove('visible'); return; }
+  if (!selectedVillager) { vpanel.classList.remove('visible'); _vpLastId = null; return; }
   vpanel.classList.add('visible');
   const v = selectedVillager;
 
@@ -98,24 +99,29 @@ function updateVillagerPanel() {
   // Upgrade section — only for Basic villagers (or training)
   const upgDiv  = document.getElementById('vp-upgrade');
   const upgBtns = document.getElementById('vp-upgrade-btns');
+  const _roleChanged = v.id !== _vpLastId || v.role !== _vpLastRole || v.state !== _vpLastState;
+  _vpLastId = v.id; _vpLastRole = v.role; _vpLastState = v.state;
   if ((v.role === VROLE.BASIC || v.state === 'training') && v.role !== VROLE.EXPLORER) {
     upgDiv.style.display = 'block';
-    upgBtns.innerHTML = '';
     if (v.state === 'training') {
       const pct = Math.round((1 - v._trainingTimer / TRAIN_TIME) * 100);
       document.getElementById('vp-upgrade-cost').textContent =
         `Training ${v._trainingRole}… ${pct}% (${Math.ceil(v._trainingTimer)}s left)`;
     } else {
-      const trainRoles = [VROLE.WOODCUTTER,VROLE.BUILDER,VROLE.FARMER,VROLE.BAKER,VROLE.STONE_MINER,VROLE.TOOLSMITH,VROLE.KNIGHT,VROLE.ARCHER,VROLE.MECHANIC];
-      for (const r of trainRoles) {
-        if (!hasPrereq(r)) continue; // hide roles whose building hasn't been built yet
-        const btn = document.createElement('button');
-        btn.className = 'upgrade-btn';
-        btn.textContent = r;
-        btn.disabled = gold < 20;
-        btn.addEventListener('click', ()=>netSend({ type: 'upgrade_villager', villagerId: selectedVillager.id, role: r }));
-        upgBtns.appendChild(btn);
+      if (_roleChanged) {
+        upgBtns.innerHTML = '';
+        const trainRoles = [VROLE.WOODCUTTER,VROLE.BUILDER,VROLE.FARMER,VROLE.BAKER,VROLE.STONE_MINER,VROLE.TOOLSMITH,VROLE.KNIGHT,VROLE.ARCHER,VROLE.MECHANIC];
+        for (const r of trainRoles) {
+          if (!hasPrereq(r)) continue;
+          const btn = document.createElement('button');
+          btn.className = 'upgrade-btn';
+          btn.textContent = r;
+          btn.addEventListener('click', ()=>netSend({ type: 'upgrade_villager', villagerId: selectedVillager.id, role: r }));
+          upgBtns.appendChild(btn);
+        }
       }
+      // Update affordability each tick without rebuilding buttons
+      upgBtns.querySelectorAll('.upgrade-btn').forEach(b => { b.disabled = gold < 20; });
       const timeLeft = v.upgradeTimer !== null ? Math.ceil(v.upgradeTimer)+'s' : '—';
       document.getElementById('vp-upgrade-cost').innerHTML = `Cost: ${iconHTML('gold',12)} 20 gold  ·  Auto in: ${timeLeft}`;
     }
@@ -483,7 +489,7 @@ function handleCanvasClick(cx, cy) {
   // Check for building click (upgradeable buildings only)
   if (!selectedVillager && activeGroup === null) {
     const clickedBldg = buildings.find(b =>
-      b.complete && tx >= b.tx && tx < b.tx + (b.w||1) && ty >= b.ty && ty < b.ty + (b.h||1)
+      tx >= b.tx && tx < b.tx + (b.w||1) && ty >= b.ty && ty < b.ty + (b.h||1)
     );
     if (clickedBldg) {
       showBuildingPanel(clickedBldg);
@@ -751,7 +757,11 @@ async function init(playerName) {
   // Build panel (idempotent — only populate buttons once)
   if (!document.querySelector('.build-btn')) {
     const btns = document.getElementById('build-btns');
-    const tip  = document.getElementById('build-tooltip');
+    const tip      = document.getElementById('build-tooltip');
+    const tipName  = document.getElementById('build-tooltip-name');
+    const tipCost  = document.getElementById('build-tooltip-cost');
+    const tipDesc  = document.getElementById('build-tooltip-desc');
+    const search   = document.getElementById('build-search');
     const STRUCT_DESC = [
       'Raises your villager cap.',
       'Villagers bring crops here to bake food.',
@@ -765,34 +775,56 @@ async function init(playerName) {
       'Expands your territory and extends vision.',
       'A passable opening in your walls. Units and visitors enter here.',
     ];
-    const BUILD_CATEGORIES = [
-      { label: 'Population', indices: [0] },
-      { label: 'Food Chain', indices: [4, 1] },
-      { label: 'Industry',   indices: [5, 7] },
-      { label: 'Defence',    indices: [6, 2, 3, 10] },
-      { label: 'Expansion',  indices: [9, 8] },
-    ];
-    for (const cat of BUILD_CATEGORIES) {
-      const section = document.createElement('div');
-      section.className = 'build-section';
-      const label = document.createElement('div');
-      label.className = 'build-section-label';
-      label.textContent = cat.label;
-      section.appendChild(label);
-      for (const i of cat.indices) {
-        const name = STRUCT_NAME[i];
-        const cost = STRUCT_COST[i] || {};
-        const costStr = Object.entries(cost).map(([r,n])=>`${n}${r[0].toUpperCase()}`).join(' ');
-        const btn = document.createElement('button');
-        btn.className = 'build-btn'; btn.id = `bbtn-${i}`;
-        btn.innerHTML = `<span class="build-btn-icon">${STRUCT_ICON[i]}</span><span class="build-btn-name">${name}</span><span class="build-btn-cost">${costStr}</span>`;
-        btn.addEventListener('click', ()=>selectBuildType(i));
-        btn.addEventListener('mouseenter', ()=>{ tip.textContent = STRUCT_DESC[i]; tip.classList.add('visible'); });
-        btn.addEventListener('mouseleave', ()=>tip.classList.remove('visible'));
-        section.appendChild(btn);
+    const BUILD_ORDER = [0, 4, 1, 5, 7, 6, 2, 3, 10, 9, 8];
+    for (const i of BUILD_ORDER) {
+      const name    = STRUCT_NAME[i];
+      const cost    = STRUCT_COST[i] || {};
+      const costStr = Object.entries(cost).map(([r,n])=>`${n} ${r[0].toUpperCase()}`).join('  ');
+      const btn = document.createElement('button');
+      btn.className = 'build-btn'; btn.id = `bbtn-${i}`;
+      btn.dataset.name = name.toLowerCase();
+      btn.dataset.desc = STRUCT_DESC[i].toLowerCase();
+      btn.title = name;
+      const ic = document.createElement('canvas');
+      ic.width = 28; ic.height = 28;
+      ic.style.imageRendering = 'pixelated';
+      ic.style.display = 'block';
+      const rows = BSTAMP[i], pal = BSTAMP_PAL[i];
+      if (rows && pal) {
+        const ictx = ic.getContext('2d');
+        const ps = 28 / rows[0].length;
+        for (let r = 0; r < rows.length; r++) {
+          for (let c = 0; c < rows[r].length; c++) {
+            const col = pal[rows[r][c]];
+            if (!col) continue;
+            ictx.fillStyle = col;
+            ictx.fillRect(Math.floor(c*ps), Math.floor(r*ps), Math.ceil(ps), Math.ceil(ps));
+          }
+        }
       }
-      btns.appendChild(section);
+      btn.appendChild(ic);
+      btn.addEventListener('click', () => selectBuildType(i));
+      btn.addEventListener('mouseenter', e => {
+        tipName.textContent = name;
+        tipCost.textContent = costStr || 'Free';
+        tipDesc.textContent = STRUCT_DESC[i];
+        tip.classList.add('visible');
+        const br = btn.getBoundingClientRect();
+        const tr = tip.getBoundingClientRect();
+        tip.style.left = Math.max(4, br.left - tr.width - 8) + 'px';
+        tip.style.top  = Math.min(br.top, window.innerHeight - tr.height - 8) + 'px';
+      });
+      btn.addEventListener('mouseleave', () => tip.classList.remove('visible'));
+      btns.appendChild(btn);
     }
+    search.addEventListener('input', () => {
+      const q = search.value.toLowerCase().trim();
+      document.querySelectorAll('.build-btn').forEach(b => {
+        const match = !q || b.dataset.name.includes(q) || b.dataset.desc.includes(q);
+        b.classList.toggle('hidden', !match);
+      });
+    });
+    search.addEventListener('keydown', e => { if (e.key === 'Escape') { toggleBuildPanel(); e.stopPropagation(); } });
   }
   // Settle button wiring (idempotent)
   if (!document.getElementById('settle-btn')._wired) {
@@ -824,24 +856,39 @@ async function init(playerName) {
   cameraFollow=true;
   bar.style.width='100%';
 
-  // Reset settle button UI
-  _settledUiDone = false;
   _pendingSettle = false;
   const sb=document.getElementById('settle-btn');
-  sb.classList.remove('hidden','placing');
-  sb.textContent='Settle Here';
-  document.getElementById('build-fab-wrap').classList.add('hidden');
-  document.getElementById('dpad').classList.add('hidden');
-  // Initial hint
   const hint=document.getElementById('hint');
-  hint.innerHTML='Roam freely &nbsp;·&nbsp; Find a good spot &nbsp;·&nbsp; <b>Settle</b> to found your kingdom';
-  hint.classList.remove('hidden');
+  if (settled) {
+    // Server auto-settled — skip settle UI, go straight to play mode
+    _settledUiDone = true;
+    sb.classList.add('hidden');
+    document.getElementById('build-fab-wrap').classList.remove('hidden');
+    hint.innerHTML = '<b>B</b> Build &nbsp;·&nbsp; <b>Click</b> Select/Move &nbsp;·&nbsp; <b>Scroll</b> Zoom &nbsp;·&nbsp; <b>F</b> Follow';
+    hint.classList.remove('hidden');
+    setTimeout(() => hint.classList.add('hidden'), 5000);
+    cameraFollow = true;
+    tutorialOnSettled();
+  } else {
+    _settledUiDone = false;
+    sb.classList.remove('hidden','placing');
+    sb.textContent='Settle Here';
+    document.getElementById('build-fab-wrap').classList.add('hidden');
+    document.getElementById('dpad').classList.add('hidden');
+    hint.innerHTML='Roam freely &nbsp;·&nbsp; Find a good spot &nbsp;·&nbsp; <b>Settle</b> to found your kingdom';
+    hint.classList.remove('hidden');
+  }
 
-  // Centre camera on map centre (villagers arrive via server state)
+  // Centre camera — on spawn point if already settled, map centre otherwise
   {
     const sz=TILE_SZ*zoom;
-    camX=MAP_W/2*sz - canvas.width/2;
-    camY=MAP_H/2*sz - canvas.height/2;
+    if (settled && townCenter) {
+      camX=(townCenter.tx+0.5)*sz - canvas.width/2;
+      camY=(townCenter.ty+0.5)*sz - canvas.height/2;
+    } else {
+      camX=MAP_W/2*sz - canvas.width/2;
+      camY=MAP_H/2*sz - canvas.height/2;
+    }
   }
   clamp();
 
