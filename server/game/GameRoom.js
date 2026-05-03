@@ -2,7 +2,7 @@
 import { MAP_W, MAP_H, DAY_LENGTH, TC_HP_MAX, SEASON_LENGTH, SEASON_NAMES } from './constants.js';
 import { register as acRegister, login as acLogin, purchaseSlot as acPurchase, addGold as acAddGold } from './accounts.js';
 import { generate, generateTrees, preGenerateKingdomSites, WALKABLE_TILES } from './world.js';
-import { rebuildNavBlocked, placeBuilding, upgradeBuilding } from './buildings.js';
+import { rebuildNavBlocked, placeBuilding, upgradeBuilding, deleteBuilding } from './buildings.js';
 import {
   initKingdom, updateVillagers, updateRegrowth,
   updateSpawning, updateGold, updateFeeding,
@@ -65,6 +65,8 @@ export class GameRoom {
     });
     generateTrees(this);
     preGenerateKingdomSites(this);
+    initBotKingdoms(this);
+    this._botsInitialised = true;
     console.log(`[room ${this.id}] world ready`);
     this._broadcastRaw(JSON.stringify({ type: 'ready', seed: this.seed }));
   }
@@ -108,6 +110,7 @@ export class GameRoom {
 
     const cx = this._pickSpawnPoint();
     initKingdom(kingdom, cx.x, cx.y);
+    this.placeTownCenter(kingdom, cx.x, cx.y);
 
     if (isNewPlayer) {
       kingdom.wood += 5;
@@ -139,6 +142,7 @@ export class GameRoom {
       const y = 10 + Math.floor(Math.random() * (MAP_H - 20));
       if (!this.mapTiles[y]?.[x]) continue;
       if (!WALKABLE_TILES.has(this.mapTiles[y][x])) continue;
+      if (this.mapTiles[y][x] === 4) continue; // no forest spawns (T.FOREST=4)
       if (existing.some(p => Math.hypot(p.tx - x, p.ty - y) < 50)) continue;
       return { x, y };
     }
@@ -155,12 +159,6 @@ export class GameRoom {
     if (kingdom.settled || kingdom.townCenter) return false;
     kingdom.townCenter = { tx, ty, hp: TC_HP_MAX, maxHp: TC_HP_MAX };
     kingdom.settled    = true;
-
-    // Initialise shared bots the first time anyone settles
-    if (!this._botsInitialised) {
-      this._botsInitialised = true;
-      initBotKingdoms(this);
-    }
     return true;
   }
 
@@ -312,6 +310,10 @@ export class GameRoom {
         }
         case 'upgrade_building': {
           upgradeBuilding(kingdom, data.buildingId);
+          break;
+        }
+        case 'delete_building': {
+          deleteBuilding(kingdom, data.buildingId);
           break;
         }
         case 'account_register':
