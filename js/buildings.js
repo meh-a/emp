@@ -83,23 +83,10 @@ function refreshBuildCosts() {
   STRUCT_COST.forEach((_, i) => {
     const btn = document.getElementById(`bbtn-${i}`);
     if (!btn) return;
-    const cost = scaledCost(i);
-    const costStr = Object.entries(cost).map(([r,n])=>`${n}${iconHTML(r,11)}`).join(' ');
-    const span = btn.querySelector('.build-btn-cost');
-    if (span) span.innerHTML = costStr;
     const can = canAffordBuilding(i);
-    btn.style.display = can ? '' : 'none';
+    btn.style.opacity = can ? '' : '0.35';
+    btn.style.cursor  = can ? '' : 'default';
     if (can) affordableCount++;
-  });
-
-  // Show section headers when 5+ buildings are affordable
-  const btnsEl = document.getElementById('build-btns');
-  btnsEl.classList.toggle('sectioned', affordableCount >= 5);
-
-  // Hide sections where every button is hidden
-  btnsEl.querySelectorAll('.build-section').forEach(sec => {
-    const anyVisible = [...sec.querySelectorAll('.build-btn')].some(b => b.style.display !== 'none');
-    sec.style.display = anyVisible ? '' : 'none';
   });
 
   const fab = document.getElementById('build-fab');
@@ -110,16 +97,24 @@ function refreshBuildCosts() {
 function toggleBuildPanel() {
   if (!settled) return;
   buildMode = !buildMode;
-  if (!buildMode) { placingType = null; document.getElementById('build-tooltip').classList.remove('visible'); }
+  if (!buildMode) {
+    placingType = null;
+    document.getElementById('build-tooltip').classList.remove('visible');
+    const s = document.getElementById('build-search');
+    if (s) { s.value = ''; document.querySelectorAll('.build-btn').forEach(b => b.classList.remove('hidden')); }
+  }
   document.getElementById('build-menu').classList.toggle('open', buildMode);
   document.getElementById('build-fab').classList.toggle('open', buildMode);
   document.querySelectorAll('.build-btn').forEach(b => b.classList.remove('active'));
-  if (buildMode) refreshBuildCosts();
+  if (buildMode) {
+    refreshBuildCosts();
+    requestAnimationFrame(() => { const s = document.getElementById('build-search'); if (s) s.focus(); });
+  }
 }
 
 function selectBuildType(type) {
   placingType=(placingType===type)?null:type;
-  document.querySelectorAll('.build-btn').forEach((b,i)=>b.classList.toggle('active',i===placingType));
+  document.querySelectorAll('.build-btn').forEach(b => b.classList.toggle('active', b.id === `bbtn-${placingType}`));
 }
 
 // ═══════════════════════════════════════════════════
@@ -144,7 +139,7 @@ const BLDG_TIER_COSTS = [
   null,
   [{wood:20,iron:20},         {iron:40,stone:20}],
   [{iron:30,gold:20},         {iron:60,gold:40}],
-  [{iron:50,stone:30},        {iron:80,gold:60}],
+  [{iron:10,stone:30},        {iron:80,gold:60}],
   null, null, null,
 ];
 const BLDG_TIER_EFFECTS = [
@@ -163,7 +158,7 @@ const BLDG_TIER_EFFECTS = [
 let _bldgPanelBuilding = null;
 
 function showBuildingPanel(b) {
-  if (!BLDG_TIER_NAMES[b.type]) return; // not upgradeable
+  if (!BLDG_TIER_NAMES[b.type] && b.complete) return; // not upgradeable
   _bldgPanelBuilding = b;
   _refreshBuildingPanel();
   document.getElementById('bldg-panel').classList.add('visible');
@@ -182,6 +177,19 @@ function _refreshBuildingPanel() {
   const effects = BLDG_TIER_EFFECTS[b.type];
   const costs = BLDG_TIER_COSTS[b.type];
 
+  const deleteBtn = document.getElementById('bldg-panel-delete-btn');
+  deleteBtn.style.display = !b.complete ? 'block' : 'none';
+
+  if (!names) {
+    // No upgrade info, just show name and delete button for under-construction buildings
+    document.getElementById('bldg-panel-name').textContent = 'Under Construction';
+    document.getElementById('bldg-panel-tier-badge').textContent = '';
+    document.getElementById('bldg-panel-effect').textContent = '';
+    document.getElementById('bldg-panel-upgrade-row').style.display = 'none';
+    document.getElementById('bldg-panel-req').textContent = '';
+    return;
+  }
+
   document.getElementById('bldg-panel-name').textContent = names[tier - 1];
   document.getElementById('bldg-panel-tier-badge').textContent = `TIER ${tier}`;
   document.getElementById('bldg-panel-effect').textContent = effects ? effects[tier - 1] : '';
@@ -190,6 +198,12 @@ function _refreshBuildingPanel() {
   const reqEl = document.getElementById('bldg-panel-req');
   const btn = document.getElementById('bldg-panel-upgrade-btn');
   const costEl = document.getElementById('bldg-panel-cost');
+
+  if (!b.complete) {
+    upgradeRow.style.display = 'none';
+    reqEl.textContent = 'Under construction…';
+    return;
+  }
 
   if (tier >= 3) {
     upgradeRow.style.display = 'none';
@@ -231,6 +245,12 @@ function requestBuildingUpgrade() {
   netSend({ type: 'upgrade_building', buildingId: _bldgPanelBuilding.id });
 }
 
+function requestDeleteBuilding() {
+  if (!_bldgPanelBuilding || _bldgPanelBuilding.complete) return;
+  netSend({ type: 'delete_building', buildingId: _bldgPanelBuilding.id });
+  closeBuildingPanel();
+}
+
 function refreshBuildingPanelIfOpen() {
   if (!_bldgPanelBuilding) return;
   // Find the updated building from the latest state
@@ -239,4 +259,3 @@ function refreshBuildingPanelIfOpen() {
   _bldgPanelBuilding = updated;
   _refreshBuildingPanel();
 }
-
