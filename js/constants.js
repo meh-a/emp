@@ -173,16 +173,24 @@ const ARCHER_ATK_SPD   = 2.0;
 // Enemy units
 const ENEMY_INF_HP    = 30;
 const ENEMY_ARC_HP    = 18;
-const ENEMY_INF_DMG   = 10;
-const ENEMY_ARC_DMG   = 6;
+const ENEMY_INF_DMG   = 14;
+const ENEMY_ARC_DMG   = 9;
 const ENEMY_MELEE_RNG = 1.3;
 const ENEMY_ARC_RNG   = 5.5;
-const ENEMY_ATK_SPD   = 1.8;
+const ENEMY_ATK_SPD   = 1.4;
 const ENEMY_SPEED     = 1.8;   // tiles/sec
 // Raid pacing
-const RAID_INTERVAL   = 300;   // seconds between raids (at base territory)
+const RAID_INTERVAL   = 120;   // seconds between raids (at base territory)
 const RAID_SIZE_MIN   = 3;
 const RAID_SIZE_MAX   = 10;
+
+// Wave scaling
+const WAVE_TC_HP    = [250, 340, 440, 560];
+const WAVE_RAID_INT = [120, 95, 75, 60];
+const WAVE_RAID_MIN = [3, 5, 8, 11];
+const WAVE_RAID_MAX = [4, 8, 10, 15];
+const WAVE_NAMES    = ['Iron Keep','Ashgate','Dreadholm','Shadowmere','Ironfang','ahhaa get cooked noob'];
+const NEXT_WAVE_DELAY = 90;
 
 // ── Building costs (matches STRUCT_NAME order) ──────────────────
 // [House, Bakery, Wall, Tower, Farmland, Mine, Barracks, Forge, Road, Outpost]
@@ -205,8 +213,11 @@ let buildCounts = new Array(STRUCT_COST.length).fill(0);
 
 let day    = 1;            // current in-game day counter
 let season = 0;            // 0=Spring 1=Summer 2=Autumn 3=Winter
-const SEASON_LENGTH = 10;
+const SEASON_LENGTH = 7;
 const SEASON_NAMES  = ['Spring','Summer','Autumn','Winter'];
+const FARM_SPEED    = [1.1, 1.3, 0.9, 0.5]; // timer speed multiplier; winter yield is blocked server-side
+const REGROWTH_BASE = 30;
+const REGROWTH_MULT = [1.0, 0.9, 1.1, 2.0];
 
 const SPAWN_INTERVAL   = 45;   // seconds between new-villager checks
 const MAX_VILLAGERS    = 20;   // soft pop cap
@@ -246,12 +257,12 @@ let _banditSpawnTimer = 0;
 
 // Adjacency bonus table: building type → { neighbour type: bonus fraction }
 const ADJACENCY_TABLE = {
-  1: { 4: 0.30 },                // Bakery + Farmland = +30%
-  7: { 5: 0.40 },                // Forge + Mine = +40%
-  6: { 7: 0.25 },                // Barracks + Forge = +25%
-  5: { 5: 0.15 },                // Mine + Mine = +15%
+  1: { 4: 0.30, 9: 0.20 },      // Bakery + Farmland/Outpost
+  7: { 5: 0.40, 9: 0.25 },      // Forge + Mine/Outpost
+  6: { 7: 0.25, 9: 0.20 },      // Barracks + Forge/Outpost
+  5: { 5: 0.15, 9: 0.30 },      // Mine + Mine/Outpost
   0: { 0: 0.10, 1: 0.20 },      // House + House / Bakery
-  4: { 4: -0.10 },               // Farm + Farm = soil competition
+  4: { 4: -0.10, 9: 0.25 },     // Farm + Farm/Outpost
 };
 
 // ── Resource nodes ────────────────────────────────────
@@ -287,3 +298,12 @@ let _treeId = 0;
 // ── Villager movement constants ───────────────────────
 const VILLAGER_SPEED = 3.0; // tiles/sec
 const ROAM_RADIUS   = 7;
+const VILLAGER_PATH_RADIUS = 25;
+
+// ── NPC constants ─────────────────────────────────────
+const NPC_VISIT_INTERVAL = 90;
+const NPC_TERRITORY_REQ  = 22;
+const NPC_VISIT_CHANCE   = 0.72;
+const NPC_APPROACH_DIST  = 28;
+const NPC_WAIT_TIME      = 40;
+const NPC_SPEED          = 2.4;
