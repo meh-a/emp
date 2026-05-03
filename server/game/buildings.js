@@ -149,6 +149,30 @@ export function upgradeBuilding(kingdom, buildingId) {
   return true;
 }
 
+export function deleteBuilding(room, buildingId) {
+  const idx = room.buildings.findIndex(b => b.id === buildingId && !b.complete);
+  if (idx === -1) return false;
+  const b = room.buildings[idx];
+  // Refund 50% of original cost
+  const cost = scaledCost(room, b.type);
+  if (cost.wood)  room.wood  += Math.floor(cost.wood  * 0.5);
+  if (cost.stone) room.stone += Math.floor(cost.stone * 0.5);
+  if (cost.iron)  room.iron  += Math.floor(cost.iron  * 0.5);
+  if (cost.gold)  room.gold  += Math.floor(cost.gold  * 0.5);
+  // Unassign any villagers building this
+  for (const v of room.villagers) {
+    if (v.buildTarget === buildingId) {
+      v.buildTarget = null;
+      v.state = 'idle';
+      v.idleTimer = 1 + Math.random() * 2;
+    }
+  }
+  room.buildCounts[b.type] = Math.max(0, (room.buildCounts[b.type] || 1) - 1);
+  room.buildings.splice(idx, 1);
+  rebuildNavBlocked(room);
+  return true;
+}
+
 export function findBuildTarget(room, builder) {
   let best = null, bestDist = Infinity;
   for (const b of room.buildings) {
