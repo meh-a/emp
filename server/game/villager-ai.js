@@ -190,6 +190,29 @@ export function getPopCap(room) {
 
 export function updateVillagers(room, dt) {
   room._pfRound = (room._pfRound || 0) + 1;
+
+  // Per-tick index maps: O(B+T) once instead of O(V*(B+T)) per villager
+  const buildingsById = new Map();
+  for (const b of room.buildings) buildingsById.set(b.id, b);
+  const treesById = new Map();
+  for (const t of room.trees) treesById.set(t.id, t);
+
+  // Pre-build claimed-target sets and hasFeastKeeper once per tick
+  const claimed = { chop: new Set(), farm: new Set(), bakery: new Set(), mine: new Set(), forge: new Set(), tower: new Set(), repair: new Set() };
+  let hasFeastKeeper = false;
+  for (const u of room.villagers) {
+    if (u.chopTarget)         claimed.chop.add(u.chopTarget.id);
+    if (u.farmTarget)         claimed.farm.add(u.farmTarget.id);
+    if (u.bakeryTarget)       claimed.bakery.add(u.bakeryTarget.id);
+    if (u.mineTarget)         claimed.mine.add(u.mineTarget.id);
+    if (u.forgeTarget)        claimed.forge.add(u.forgeTarget.id);
+    if (u.towerTarget != null) claimed.tower.add(u.towerTarget);
+    if (u.repairTarget != null) claimed.repair.add(u.repairTarget);
+    if (u.role === VROLE.BAKER && u.tier === 5) hasFeastKeeper = true;
+  }
+  room._claimed = claimed;
+  room._hasFeastKeeper = hasFeastKeeper;
+
   for (const v of room.villagers) {
     v.hunger = Math.max(0, v.hunger - HUNGER_RATE * dt);
     if (v.hunger <= 0) v._despawn = true;
@@ -206,7 +229,7 @@ export function updateVillagers(room, dt) {
     } else {
 
     if (v.state==='chopping') {
-      if (!v.chopTarget||!room.trees.some(t=>t.id===v.chopTarget.id)) {
+      if (!v.chopTarget||!treesById.has(v.chopTarget.id)) {
         v.chopTarget=null; v.state='idle'; v.idleTimer=1; continue;
       }
       const forestBonus = getNodeBonus(room, v.chopTarget.tx, v.chopTarget.ty, 'forest');
@@ -219,6 +242,7 @@ export function updateVillagers(room, dt) {
         gainXP(room, v);
         const {id:tid,tx:ct,ty:cty}=v.chopTarget;
         room.trees=room.trees.filter(t=>t.id!==tid);
+        treesById.delete(tid);
         rebuildNavBlocked(room);
         const inAncientForest = room.resourceNodes.some(n =>
           n.type==='forest' && n.active && Math.hypot(n.tx-ct, n.ty-cty) <= n.radius
@@ -236,7 +260,7 @@ export function updateVillagers(room, dt) {
     }
 
     if (v.state==='farming') {
-      if (!v.farmTarget||!room.buildings.some(b=>b.id===v.farmTarget.id&&b.complete)) {
+      if (!v.farmTarget||!buildingsById.get(v.farmTarget.id)?.complete) {
         v.farmTarget=null; v.state='idle'; v.idleTimer=1; continue;
       }
       const _season = getSeason(room);
@@ -265,7 +289,7 @@ export function updateVillagers(room, dt) {
     }
 
     if (v.state==='baking') {
-      if (!v.bakeryTarget||!room.buildings.some(b=>b.id===v.bakeryTarget.id&&b.complete)) {
+      if (!v.bakeryTarget||!buildingsById.get(v.bakeryTarget.id)?.complete) {
         v.bakeryTarget=null; v.state='idle'; v.idleTimer=1; continue;
       }
       if (room.crops < BAKE_COST) {
@@ -286,7 +310,7 @@ export function updateVillagers(room, dt) {
     }
 
     if (v.state==='mining') {
-      if (!v.mineTarget||!room.buildings.some(b=>b.id===v.mineTarget.id&&b.complete)) {
+      if (!v.mineTarget||!buildingsById.get(v.mineTarget.id)?.complete) {
         v.mineTarget=null; v.state='idle'; v.idleTimer=1; continue;
       }
       const mineOutpost = getOutpostBonus(room, v.mineTarget.tx, v.mineTarget.ty);
@@ -322,7 +346,7 @@ export function updateVillagers(room, dt) {
     }
 
     if (v.state==='forging') {
-      if (!v.forgeTarget||!room.buildings.some(b=>b.id===v.forgeTarget.id&&b.complete)) {
+      if (!v.forgeTarget||!buildingsById.get(v.forgeTarget.id)?.complete) {
         v.forgeTarget=null; v.state='idle'; v.idleTimer=1; continue;
       }
       let tier=-1;
@@ -333,7 +357,7 @@ export function updateVillagers(room, dt) {
         }
       }
       if (tier<0) { v.state='idle'; v.idleTimer=4+Math.random()*4; continue; }
-      const forgeAdj = room.buildings.find(b=>b.id===v.forgeTarget.id)?.adjacencyBonus || 1.0;
+      const forgeAdj = buildingsById.get(v.forgeTarget.id)?.adjacencyBonus || 1.0;
       const forgeOutpost = getOutpostBonus(room, v.forgeTarget.tx, v.forgeTarget.ty);
       v.forgeTimer+=dt * forgeAdj * forgeOutpost;
       if (v.forgeTimer>=CRAFT_TIME[tier]) {
@@ -360,7 +384,7 @@ export function updateVillagers(room, dt) {
     }
 
     if (v.state === 'repairing') {
-      const rb = room.buildings.find(b => b.id === v.repairTarget);
+      const rb = buildingsById.get(v.repairTarget);
       if (!rb || !rb.complete || rb.hp >= rb.maxHp) {
         v.repairTarget = null; v.state = 'idle'; v.idleTimer = 1 + Math.random()*2;
         continue;
@@ -378,7 +402,8 @@ export function updateVillagers(room, dt) {
     }
 
     if (v.state === 'guarding') {
-      if (!room.buildings.some(b=>b.id===v.towerTarget&&b.complete&&b.type===3)) {
+      const _gt = buildingsById.get(v.towerTarget);
+      if (!_gt?.complete || _gt?.type !== 3) {
         v.state='idle'; v.idleTimer=1; v.towerTarget=null;
       }
       if (isNight(room) && !v._goingSleep) {
@@ -392,7 +417,7 @@ export function updateVillagers(room, dt) {
     }
 
     if (v.state==='building') {
-      const bld=room.buildings.find(b=>b.id===v.buildTarget);
+      const bld=buildingsById.get(v.buildTarget);
       if (!bld||bld.complete) {
         v.buildTarget=null; v.state='idle'; v.idleTimer=1+Math.random()*2;
       } else {
@@ -446,7 +471,7 @@ export function updateVillagers(room, dt) {
 
     if (v.state==='training') {
       if (v._trainingBuilding != null) {
-        const tb = room.buildings.find(b => b.id === v._trainingBuilding);
+        const tb = buildingsById.get(v._trainingBuilding);
         if (!tb) { v._trainingBuilding = null; }
         else {
           const dist = Math.abs(Math.floor(v.x) - tb.tx) + Math.abs(Math.floor(v.y) - tb.ty);
@@ -509,7 +534,7 @@ export function updateVillagers(room, dt) {
         v.path.shift();
         if (v.path.length===0) {
           if (v.buildTarget!==null) {
-            const bld=room.buildings.find(b=>b.id===v.buildTarget);
+            const bld=buildingsById.get(v.buildTarget);
             if (bld&&!bld.complete&&v.tx===bld.tx&&v.ty===bld.ty) {
               v.state='building';
               if (!bld.assignedBuilders.includes(v.id)) bld.assignedBuilders.push(v.id);
@@ -518,41 +543,41 @@ export function updateVillagers(room, dt) {
             }
           } else if (v.chopTarget!==null) {
             const {id:tid,tx:ct,ty:cty}=v.chopTarget;
-            if (v.tx===ct&&v.ty===cty&&room.trees.some(t=>t.id===tid)) {
+            if (v.tx===ct&&v.ty===cty&&treesById.has(tid)) {
               v.state='chopping'; v.chopTimer=0;
             } else {
               v.chopTarget=null; v.state='idle'; v.idleTimer=1+Math.random()*2;
             }
           } else if (v.farmTarget!==null) {
-            const fb=room.buildings.find(b=>b.id===v.farmTarget.id);
+            const fb=buildingsById.get(v.farmTarget.id);
             if (fb&&fb.complete&&v.tx===fb.tx&&v.ty===fb.ty) {
               v.state='farming'; v.farmTimer=0;
             } else {
               v.farmTarget=null; v.state='idle'; v.idleTimer=1+Math.random()*2;
             }
           } else if (v.bakeryTarget!==null) {
-            const bb=room.buildings.find(b=>b.id===v.bakeryTarget.id);
+            const bb=buildingsById.get(v.bakeryTarget.id);
             if (bb&&bb.complete&&v.tx===bb.tx&&v.ty===bb.ty) {
               v.state='baking'; v.bakeTimer=0;
             } else {
               v.bakeryTarget=null; v.state='idle'; v.idleTimer=1+Math.random()*2;
             }
           } else if (v.mineTarget!==null) {
-            const mb=room.buildings.find(b=>b.id===v.mineTarget.id);
+            const mb=buildingsById.get(v.mineTarget.id);
             if (mb&&mb.complete&&v.tx===mb.tx&&v.ty===mb.ty) {
               v.state='mining'; v.mineTimer=0;
             } else {
               v.mineTarget=null; v.state='idle'; v.idleTimer=1+Math.random()*2;
             }
           } else if (v.forgeTarget!==null) {
-            const fb2=room.buildings.find(b=>b.id===v.forgeTarget.id);
+            const fb2=buildingsById.get(v.forgeTarget.id);
             if (fb2&&fb2.complete&&v.tx===fb2.tx&&v.ty===fb2.ty) {
               v.state='forging'; v.forgeTimer=0;
             } else {
               v.forgeTarget=null; v.state='idle'; v.idleTimer=1+Math.random()*2;
             }
           } else if (v.repairTarget!==null) {
-            const rb=room.buildings.find(b=>b.id===v.repairTarget);
+            const rb=buildingsById.get(v.repairTarget);
             if (rb&&rb.complete&&v.tx===rb.tx&&v.ty===rb.ty&&rb.hp<rb.maxHp) {
               v.state='repairing'; v.repairTimer=0;
             } else {
@@ -647,7 +672,7 @@ export function initKingdom(kingdom, cx, cy) {
       const nx = x+dx, ny = y+dy;
       if (nx < 0 || nx >= MAP_W || ny < 0 || ny >= MAP_H) continue;
       const ni = ny * MAP_W + nx;
-      if (!visited[ni] && WALKABLE_TILES.has(kingdom.mapTiles[ny][nx])) { visited[ni]=1; queue.push(ni); }
+      if (!visited[ni] && WALKABLE_TILES.has(kingdom.mapTiles[ny][nx]) && !kingdom.villagerBlocked[ni]) { visited[ni]=1; queue.push(ni); }
     }
   }
   const chosen = [];
@@ -709,7 +734,7 @@ export function updateFeeding(room, dt) {
   room.feedTimer += dt;
   if (room.feedTimer < FEED_TICK) return;
   room.feedTimer = 0;
-  const hasFeastKeeper = room.villagers.some(v => v.role === VROLE.BAKER && v.tier === 5);
+  const hasFeastKeeper = room._hasFeastKeeper || false;
   for (const v of room.villagers) {
     if (room.food <= 0) break;
     room.food--;
