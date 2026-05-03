@@ -27,8 +27,9 @@ export const FEED_TICK    = 20;
 export const FEED_RESTORE = 0.35;
 
 // Villager movement
-export const VILLAGER_SPEED = 3.0;
-export const ROAM_RADIUS    = 7;
+export const VILLAGER_SPEED      = 3.0;
+export const ROAM_RADIUS         = 7;
+export const VILLAGER_PATH_RADIUS = 25;
 export const PATROL_RADIUS  = 12;
 export const POSSESS_SPEED  = 4.5;
 export const BASIC_UPGRADE_TIME = 100;
@@ -100,7 +101,7 @@ export const BLDG_TIER_COSTS = [
   null,                                                       // Farmland
   [{wood:20,iron:20},         {iron:40,stone:20}],           // Mine
   [{iron:30,gold:20},         {iron:60,gold:40}],            // Barracks
-  [{iron:5,stone:30},        {iron:10,gold:60}],            // Forge
+  [{iron:10,stone:30},        {iron:80,gold:60}],            // Forge
   null, null, null,                                          // 8,9,10
 ];
 
