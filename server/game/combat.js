@@ -11,7 +11,8 @@ import {
 } from './constants.js';
 import { STRUCT_NAME } from './sprites.js';
 import { WALKABLE_TILES, findPath } from './world.js';
-import { getTerritoryRadius, rebuildNavBlocked, updateNeighborBonuses } from './buildings.js';
+import { getTerritoryRadius, rebuildNavBlocked, updateNeighborBonuses, mkBuilding } from './buildings.js';
+import { mkVillager } from './villager-ai.js';
 import { NPC_TERRITORY_REQ } from './constants.js';
 
 // ═══════════════════════════════════════════════════
@@ -260,7 +261,10 @@ export function initBotKingdoms(room) {
   for (let i = 0; i < INITIAL_COUNT; i++) {
     room._totalBotWaves++;
     const angle = startAngle + (i / INITIAL_COUNT) * Math.PI * 2;
-    _spawnKingdom(room, 1, angle, 90 + i * 90, cx, cy);
+    // Negative delay: raidTimer starts below zero so each bot must count all the
+    // way up through 0 before approaching raidInterval — guarantees real stagger.
+    // Bot 0 fires ~3 min in, bot 1 ~5 min, bot 2 ~7 min.
+    _spawnKingdom(room, 1, angle, -(60 + i * 120), cx, cy);
   }
 }
 
@@ -399,15 +403,48 @@ function _dmgEnemyKingdom(kingdom, ek, dmg) {
   ek.hp = Math.max(0, ek.hp - dmg);
   kingdom.pendingEvents.push({ type: 'hit', wx: ek.tx+0.5, wy: ek.ty+0.5, dmg, color: '#ffdd44' });
   if (ek.hp <= 0 && kingdom.gameState === 'playing') {
-    ek.buildings = []; ek.villagers = [];
-    const wi = Math.min(ek.difficulty-1, WAVE_TC_HP.length-1);
-    const reward = { gold: 60+wi*40+Math.floor(Math.random()*40), wood: 20+wi*10, stone: 15+wi*8 };
-    kingdom.gold  += reward.gold;
-    kingdom.wood  += reward.wood;
-    kingdom.stone += reward.stone;
-    kingdom.notify(`${ek.name} has fallen! +${reward.gold}⚜ +${reward.wood}🪵 +${reward.stone}🪨`, 'warn');
-    // Schedule next bot wave at room level
     const room = kingdom._room;
+
+    // ── Transfer enemy buildings to player kingdom ──
+    const transferredBldgs = [];
+    for (const b of ek.buildings) {
+      // Skip farmland/mine that may be on incompatible terrain, skip roads
+      if (b.type === 8) continue;
+      const nb = { ...b, id: room._bid++ };
+      kingdom.buildings.push(nb);
+      transferredBldgs.push(nb);
+    }
+
+    // ── Convert enemy civilian villagers to Basic workers ──
+    const civilianRoles = new Set(['Woodcutter','Farmer','Builder','Baker','Basic']);
+    let capturedCount = 0;
+    for (const ev of ek.villagers) {
+      if (!civilianRoles.has(ev.role)) continue; // skip guards/knights
+      const nv = mkVillager(room, 'Basic', Math.floor(ev.x), Math.floor(ev.y));
+      nv.x = ev.x; nv.y = ev.y;
+      nv.hp = Math.max(1, Math.round(ev.hp * 0.6)); // survive capture at reduced HP
+      kingdom.villagers.push(nv);
+      capturedCount++;
+    }
+
+    // ── Place outpost at the fallen TC location ──
+    const outpost = mkBuilding(room, 9, ek.tx, ek.ty);
+    outpost.progress = outpost.maxHp; // already complete
+    outpost.complete = true;
+    outpost.hp = outpost.maxHp;
+    kingdom.buildings.push(outpost);
+
+    // Clear enemy kingdom
+    ek.buildings = []; ek.villagers = []; ek.guards = [];
+
+    rebuildNavBlocked(room);
+
+    const wi = Math.min(ek.difficulty-1, WAVE_TC_HP.length-1);
+    const captureMsg = capturedCount > 0
+      ? ` ${capturedCount} villager${capturedCount>1?'s':''} captured.`
+      : '';
+    kingdom.notify(`${ek.name} has fallen! Outpost established.${captureMsg}`, 'warn');
+
     if (room) { room._totalBotWaves++; room._nextBotTimer = NEXT_WAVE_DELAY; }
   }
 }
@@ -680,6 +717,27 @@ function updatePlayerKnightCombat(kingdom, dt) {
         _dmgEnemyKingdom(kingdom, nearestEkTC, knightDmg);
       }
       v.state='fighting'; continue;
+    }
+    // Attack bandit camps in range
+    if (kingdom.banditCamps) {
+      let nearestCamp = null, nearestCampDist = KNIGHT_ATK_RANGE;
+      for (const camp of kingdom.banditCamps) {
+        if (camp.destroyed) continue;
+        const d = Math.hypot(camp.tx + 0.5 - v.x, camp.ty + 0.5 - v.y);
+        if (d < nearestCampDist) { nearestCampDist = d; nearestCamp = camp; }
+      }
+      if (nearestCamp) {
+        v.attackTimer += dt;
+        if (v.attackTimer >= KNIGHT_ATK_SPD) {
+          v.attackTimer = 0; v.attackAnim = 1.0;
+          nearestCamp.hp = Math.max(0, nearestCamp.hp - knightDmg);
+          if (nearestCamp.hp <= 0) {
+            nearestCamp.destroyed = true;
+            kingdom.notify('⚔️ Bandit camp destroyed!', 'info');
+          }
+        }
+        v.state = 'fighting'; continue;
+      }
     }
     v.attackTimer = 0;
     if (v.hp < v.maxHp) {
@@ -1035,9 +1093,10 @@ export function updateBotKingdoms(room, dt) {
     if (ek.raidTimer >= ek.raidInterval) {
       // Pick a random settled player to raid
       const target = settled[Math.floor(Math.random() * settled.length)];
-      // Don't raid until the player has at least 2 knights
-      if (target.villagers.filter(v => v.role === 'Knight').length >= 2) {
-        // Random jitter so bots can't re-sync after multiple blocked attempts
+      const knightCount = target.villagers.filter(v => v.role === 'Knight').length;
+      // After 3 minutes raids start unconditionally — prevents gaming the knight threshold
+      const hardUnlock = (room._elapsed || 0) >= 180;
+      if (knightCount >= 3 || hardUnlock) {
         ek.raidTimer = -(30 + Math.random() * 60);
         launchRaid(room, target, ek);
       } else {
