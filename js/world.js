@@ -54,11 +54,13 @@ async function generate(seed, onProgress) {
   mapHeight   = [];
   mapVariant  = [];
   mapMoisture = [];
+  mapTemperature = [];
 
   for (let y=0; y<MAP_H; y++) {
-    mapHeight[y]   = new Float32Array(MAP_W);
-    mapVariant[y]  = new Float32Array(MAP_W);
-    mapMoisture[y] = new Float32Array(MAP_W);
+    mapHeight[y]      = new Float32Array(MAP_W);
+    mapVariant[y]     = new Float32Array(MAP_W);
+    mapMoisture[y]    = new Float32Array(MAP_W);
+    mapTemperature[y] = new Float32Array(MAP_W);
 
     for (let x=0; x<MAP_W; x++) {
       const nx=(x/MAP_W)*2-1, ny=(y/MAP_H)*2-1;
@@ -91,6 +93,10 @@ async function generate(seed, onProgress) {
       mapHeight[y][x]   = h;
       mapMoisture[y][x] = fbm(x/48+350, y/48+350, seed+50000, 4);
       mapVariant[y][x]  = vnoise(x/2.2,  y/2.2,   seed+88888);
+      const lat = Math.abs(y / MAP_H - 0.5) * 2;
+      mapTemperature[y][x] = Math.max(0, Math.min(1,
+        (1 - lat * 0.8) + (fbm(x/55+300, y/55+300, seed+66666, 3) - 0.5) * 0.4
+      ));
     }
 
     // Yield to browser every 16 rows so the loading bar can repaint
@@ -105,12 +111,15 @@ async function generate(seed, onProgress) {
     mapTiles[y] = new Uint8Array(MAP_W);
     for (let x=0; x<MAP_W; x++) {
       const h=mapHeight[y][x], m=mapMoisture[y][x];
-      // Fine-scale patch noise breaks coarse moisture blobs into smaller forest patches
+      const temp = mapTemperature[y][x];
       const fp = vnoise(x/11, y/11, seed+11111);
       const fm = m * 0.60 + fp * 0.40;
       if      (h < 0.10) mapTiles[y][x] = T.DEEP;
       else if (h < 0.21) mapTiles[y][x] = T.WATER;
+      else if (h < 0.30 && m > 0.63) mapTiles[y][x] = T.SWAMP;
       else if (h < 0.29) mapTiles[y][x] = T.SAND;
+      else if (h < 0.57 && m < 0.24 && temp > 0.40) mapTiles[y][x] = T.DESERT;
+      else if (h < 0.67 && temp < 0.30) mapTiles[y][x] = T.TUNDRA;
       else if (h < 0.57) mapTiles[y][x] = fm>0.48 ? T.FOREST : T.GRASS;
       else if (h < 0.67) mapTiles[y][x] = fm>0.40 ? T.FOREST : T.HILL;
       else if (h < 0.79) mapTiles[y][x] = T.MOUNTAIN;
@@ -184,7 +193,7 @@ function generateResourceNodes(_seed) {
 // ═══════════════════════════════════════════════════
 //  PATHFINDING  (heap-based A*)
 // ═══════════════════════════════════════════════════
-const WALKABLE_TILES = new Set([T.SAND, T.GRASS, T.FOREST, T.HILL, T.RIVER]);
+const WALKABLE_TILES = new Set([T.SAND, T.GRASS, T.FOREST, T.HILL, T.RIVER, T.SWAMP, T.DESERT, T.TUNDRA]);
 
 class MinHeap {
   constructor() { this.h = []; }
@@ -292,11 +301,11 @@ function preGenerateKingdomSites() {
     }
   }
 
-  // Pre-pick 12 sites spread evenly around the map center
-  const NUM_SITES = 12;
+  // Pre-pick 16 sites spread evenly around the map center
+  const NUM_SITES = 16;
   for (let i = 0; i < NUM_SITES; i++) {
     const angle = (i / NUM_SITES) * Math.PI * 2;
-    const dist  = 58 + (i % 3) * 9; // 58 / 67 / 76 tiles out
+    const dist  = 75 + (i % 4) * 15;
     let ex = Math.round(cx + Math.cos(angle) * dist);
     let ey = Math.round(cy + Math.sin(angle) * dist);
     ex = Math.max(5, Math.min(MAP_W-6, ex));
@@ -310,8 +319,8 @@ function preGenerateKingdomSites() {
           const nx = ex+dx, ny = ey+dy;
           if (nx<4||nx>=MAP_W-4||ny<4||ny>=MAP_H-4) continue;
           if (!reachable[ny*MAP_W+nx]) continue;
-          if (Math.hypot(nx-cx, ny-cy) < 45) continue;
-          if (enemyKingdomSites.some(s => Math.hypot(nx-s.tx, ny-s.ty) < 30)) continue;
+          if (Math.hypot(nx-cx, ny-cy) < 55) continue;
+          if (enemyKingdomSites.some(s => Math.hypot(nx-s.tx, ny-s.ty) < 38)) continue;
           enemyKingdomSites.push({tx: nx, ty: ny});
           found = true;
         }
@@ -324,12 +333,23 @@ function generateTrees(seed) {
   trees = []; _treeId = 0;
   for (let ty = 0; ty < MAP_H; ty++) {
     for (let tx = 0; tx < MAP_W; tx++) {
-      if (mapTiles[ty][tx] !== T.FOREST) continue;
-      const density = vnoise(tx / 8, ty / 8, seed + 22222);
-      if (ihash(tx, ty, seed + 33333) > 0.35 + density * 0.40) continue;
+      const tile = mapTiles[ty][tx];
+      let scale = 0.88;
+      if (tile === T.FOREST) {
+        const density = vnoise(tx / 8, ty / 8, seed + 22222);
+        if (ihash(tx, ty, seed + 33333) > 0.35 + density * 0.40) continue;
+      } else if (tile === T.TUNDRA) {
+        if (ihash(tx, ty, seed + 33333) > 0.20) continue;
+        scale = 0.78 + ihash(tx, ty, seed + 66666) * 0.14;
+      } else if (tile === T.DESERT) {
+        if (ihash(tx, ty, seed + 33333) > 0.05) continue;
+        scale = 0.70 + ihash(tx, ty, seed + 66666) * 0.18;
+      } else {
+        continue;
+      }
       const ox = ihash(tx * 3 + 1, ty, seed + 44444) * 0.08 + 0.02;
       const oy = ihash(tx, ty * 3 + 1, seed + 55555) * 0.08 + 0.02;
-      trees.push({id: _treeId++, tx, ty, ox, oy, scale: 0.88});
+      trees.push({id: _treeId++, tx, ty, ox, oy, scale});
     }
   }
 }
