@@ -4,7 +4,7 @@
   <base href="../">
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>Gmail trust!!!</title>
+  <title>Empires — Singleplayer</title>
   <link rel="icon" href="data:,">
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Silkscreen:wght@400;700&display=swap" rel="stylesheet">
   <style>
@@ -515,49 +515,56 @@
     }
     #build-fab:hover { background: rgba(200,146,42,0.14); border-color: rgba(200,146,42,0.60); }
     #build-fab.open { background: rgba(200,146,42,0.22); border-color: rgba(200,146,42,0.65); }
-    #build-menu { display: none; flex-direction: row; gap: 8px; align-items: flex-start; }
+    #build-menu {
+      display: none; flex-direction: column; gap: 6px;
+      background: rgba(7,5,10,0.94);
+      border: 1px solid rgba(200,146,42,0.30);
+      border-radius: 8px; padding: 8px;
+      margin-bottom: 6px;
+      min-width: 220px;
+    }
     #build-menu.open { display: flex; }
-    #build-btns { display: flex; flex-direction: column; gap: 3px; }
-    .build-section { display: flex; flex-direction: column; gap: 3px; }
-    .build-section-label {
-      display: none;
-      font-size: 0.44rem; letter-spacing: 1.8px; text-transform: uppercase;
-      color: #6a5438; padding: 5px 10px 1px;
-      border-top: 1px solid rgba(200,146,42,0.12);
-      margin-top: 2px;
+    #build-search {
+      width: 100%; box-sizing: border-box;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(200,146,42,0.22);
+      border-radius: 4px; padding: 4px 8px;
+      color: #c8a050; font-family: inherit; font-size: 0.65rem;
+      outline: none;
     }
-    .build-section:first-child .build-section-label { border-top: none; margin-top: 0; }
-    #build-btns.sectioned .build-section-label { display: block; }
+    #build-search::placeholder { color: #6a5438; }
+    #build-search:focus { border-color: rgba(200,146,42,0.55); }
+    #build-btns {
+      display: grid;
+      grid-template-columns: repeat(6, 34px);
+      gap: 4px;
+    }
     .build-btn {
-      display: flex; align-items: center; gap: 8px;
-      padding: 6px 10px;
-      background: rgba(7,5,10,0.90);
+      width: 34px; height: 34px;
+      background: rgba(255,255,255,0.04);
       border: 1px solid rgba(200,146,42,0.18);
-      border-radius: 4px; cursor: pointer;
-      color: inherit; font-family: inherit;
-      min-width: 150px;
-      transition: background 0.12s, border-color 0.12s;
-      text-align: left;
-    }
-    .build-btn:hover { background: rgba(200,146,42,0.12); border-color: rgba(200,146,42,0.40); }
-    .build-btn.active { background: rgba(200,146,42,0.22); border-color: rgba(200,146,42,0.65); }
-    .build-btn-icon {
-      width: 20px; height: 20px;
-      background: rgba(255,255,255,0.06); border-radius: 2px;
+      border-radius: 5px; cursor: pointer;
       display: flex; align-items: center; justify-content: center;
-      font-size: 0.75rem; color: #c8a050; flex-shrink: 0;
+      transition: background 0.10s, border-color 0.10s;
+      padding: 3px;
     }
-    .build-btn-name { font-size: 0.63rem; color: #c09060; flex: 1; }
-    .build-btn-cost { font-size: 0.58rem; color: #a08040; white-space: nowrap; }
+    .build-btn:hover  { background: rgba(200,146,42,0.16); border-color: rgba(200,146,42,0.55); }
+    .build-btn.active { background: rgba(200,146,42,0.26); border-color: rgba(200,146,42,0.80); }
+    .build-btn.hidden { display: none; }
     #build-tooltip {
-      background: rgba(7,5,10,0.92);
-      border: 1px solid rgba(200,146,42,0.25);
-      border-radius: 4px; padding: 8px 10px;
+      position: fixed;
+      background: rgba(7,5,10,0.96);
+      border: 1px solid rgba(200,146,42,0.30);
+      border-radius: 5px; padding: 8px 10px;
       font-size: 0.62rem; color: #b09060;
-      width: 160px; display: none;
-      line-height: 1.5; pointer-events: none;
+      width: 180px; pointer-events: none;
+      line-height: 1.5; display: none;
+      z-index: 9999;
     }
     #build-tooltip.visible { display: block; }
+    #build-tooltip-name { font-weight: 700; color: #f5d080; font-size: 0.68rem; margin-bottom: 3px; }
+    #build-tooltip-cost { color: #90b870; margin-bottom: 4px; }
+    #build-tooltip-desc { color: #b09060; }
 
     /* ── Virtual d-pad (possession mode) ── */
     #dpad {
@@ -1111,7 +1118,7 @@
 <!-- Loading screen -->
 <div id="loading">
   <div id="loading-title">EMPIRES</div>
-  <div id="loading-sub">i am not ok</div>
+  <div id="loading-sub">Forging the realm…</div>
   <div id="loading-bar-wrap"><div id="loading-bar-fill"></div></div>
 </div>
 
@@ -1152,6 +1159,7 @@
       <div class="hud-pill" id="day-display">Day 1</div>
       <div class="hud-pill" id="time-display">Morning</div>
       <div class="hud-pill" style="color:#6a9060;border-color:rgba(80,160,50,0.28)">Singleplayer</div>
+      <div class="hud-pill" id="worker-perf" style="color:#608060;border-color:rgba(80,140,50,0.28);font-size:0.58rem;cursor:default;font-family:monospace" title="Worker tick time (100ms budget)">sim —</div>
       <button id="save-btn" class="hidden" onclick="saveGame()">Save</button>
       <button id="topbar-account-btn" onclick="openAccountModal()">Account</button>
     </div>
@@ -1174,6 +1182,7 @@
       <button id="bldg-panel-upgrade-btn" onclick="requestBuildingUpgrade()"></button>
     </div>
     <div id="bldg-panel-req"></div>
+    <button id="bldg-panel-delete-btn" onclick="requestDeleteBuilding()" style="display:none;margin-top:6px;width:100%;background:rgba(180,40,40,0.18);border:1px solid rgba(200,60,60,0.4);color:#e07070;border-radius:4px;padding:4px 0;font-family:inherit;font-size:0.62rem;cursor:pointer;">Cancel Construction (50% refund)</button>
   </div>
 
   <!-- Villager panel (bottom-left) -->
@@ -1213,10 +1222,15 @@
   <!-- Build FAB + menu (bottom-left, hidden until settled) -->
   <div id="build-fab-wrap" class="hidden">
     <div id="build-menu">
+      <input id="build-search" type="text" placeholder="Search buildings…" autocomplete="off">
       <div id="build-btns"></div>
-      <div id="build-tooltip"></div>
     </div>
     <button id="build-fab" onclick="toggleBuildPanel()"><span data-icon="hammer" data-icon-size="22"></span></button>
+  </div>
+  <div id="build-tooltip">
+    <div id="build-tooltip-name"></div>
+    <div id="build-tooltip-cost"></div>
+    <div id="build-tooltip-desc"></div>
   </div>
 
   <!-- Virtual d-pad (shown during knight possession) -->
@@ -1293,8 +1307,7 @@
   <div id="name-card">
     <div class="ns-emblem">⚔</div>
     <div class="ns-title">EMPIRES</div>
-    <div class="ns-sub">im gonna update the game soon
-    biomes, bosses, FISHING AND BOATS!!!</div>
+    <div class="ns-sub">Phase I — The Realm</div>
     <div class="ns-divider">◆</div>
     <div class="ns-features">
       <span><span data-icon="hammer" data-icon-size="18"></span><b>Build</b>towns &amp; farms</span>
@@ -1350,7 +1363,7 @@
       </div>
     </div>
     <div id="go-reward"></div>
-    <button id="go-btn">lol u suck</button>
+    <button id="go-btn">Play Again</button>
   </div>
 </div>
 
