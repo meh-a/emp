@@ -1,12 +1,13 @@
 // ── server/game/constants.js ── (pure constants, no mutable state)
 
-export const MAP_W   = 200;
-export const MAP_H   = 200;
+export const MAP_W   = 300;
+export const MAP_H   = 300;
 export const TILE_SZ = 32;
 
 // Tile type enum
 export const T = Object.freeze({
-  DEEP:0, WATER:1, SAND:2, GRASS:3, FOREST:4, HILL:5, MOUNTAIN:6, PEAK:7, RIVER:8
+  DEEP:0, WATER:1, SAND:2, GRASS:3, FOREST:4, HILL:5, MOUNTAIN:6, PEAK:7, RIVER:8,
+  SWAMP:9, DESERT:10, TUNDRA:11,
 });
 
 // Villager roles
@@ -108,8 +109,8 @@ export const BLDG_TIER_COSTS = [
 // Wave scaling
 export const WAVE_TC_HP    = [250, 340, 440, 560];
 export const WAVE_RAID_INT = [120, 95, 75, 60];
-export const WAVE_RAID_MIN = [3, 5, 8, 11];
-export const WAVE_RAID_MAX = [4, 8, 10, 15];
+export const WAVE_RAID_MIN = [1, 4, 7, 10];
+export const WAVE_RAID_MAX = [2, 6,  9, 13];
 export const WAVE_NAMES    = ['Iron Keep','Ashgate','Dreadholm','Shadowmere','Ironfang','ahhaa get cooked noob'];
 export const NEXT_WAVE_DELAY = 90;
 
