@@ -68,14 +68,15 @@ self.onmessage = async (e) => {
       if (!r.ok) throw new Error(`${m} HTTP ${r.status}`);
     }
 
-    // Second pass: import
+    // Second pass: import (v param busts module cache on redeploy)
+    const _v = `?v=20250503c`;
     for (const m of mods) {
-      await import(new URL(m, import.meta.url).href);
+      await import(new URL(m, import.meta.url).href + _v);
     }
-    const { GameRoom } = await import(new URL('../server/game/GameRoom.js', import.meta.url).href);
-    const { Kingdom }  = await import(new URL('../server/game/Kingdom.js',  import.meta.url).href);
-    const { rebuildNavBlocked } = await import(new URL('../server/game/buildings.js', import.meta.url).href);
-    const { generate } = await import(new URL('../server/game/world.js', import.meta.url).href);
+    const { GameRoom } = await import(new URL('../server/game/GameRoom.js', import.meta.url).href + _v);
+    const { Kingdom }  = await import(new URL('../server/game/Kingdom.js',  import.meta.url).href + _v);
+    const { rebuildNavBlocked } = await import(new URL('../server/game/buildings.js', import.meta.url).href + _v);
+    const { generate } = await import(new URL('../server/game/world.js', import.meta.url).href + _v);
 
     room = new GameRoom('sp');
     room._broadcastRaw = (str) => {
@@ -139,6 +140,8 @@ self.onmessage = async (e) => {
       seed:        room.seed,
       myKingdomId: kingdom.id,
       trees:       room.trees,
+      settled:     kingdom.settled,
+      townCenter:  kingdom.townCenter ? { ...kingdom.townCenter } : null,
     };
 
     // Send explored fog back to client so the map stays uncovered after load
