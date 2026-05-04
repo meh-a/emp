@@ -240,6 +240,9 @@ function _applyState(s) {
   projectiles   = s.projectiles   || [];
   npcs          = s.npcs          || [];
   bandits       = s.bandits       || [];
+  if (s.resourceNodes) resourceNodes = s.resourceNodes;
+  if (s.banditCamps)   banditCamps   = s.banditCamps;
+  if (s.ruins)         ruins         = s.ruins;
 
   // Map tile patches (forest→grass when trees are chopped)
   if (s.tileChanges && mapTiles.length) {
