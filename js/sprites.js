@@ -9,18 +9,19 @@ const STRUCT_BUILD_TIME = [15,20,8,25,10,30,25,20,0,45,10]; // seconds per build
 const STRUCT_MAX_BUILDERS = 3;
 
 // Valid placement tile types per structure (index matches STRUCT_NAME order)
+const _BUILD_TILES = new Set([T.GRASS,T.SAND,T.HILL,T.DESERT,T.TUNDRA]);
 const STRUCT_VALID = [
-  new Set([T.GRASS,T.SAND,T.HILL]),               // House
-  new Set([T.GRASS,T.SAND,T.HILL]),               // Bakery
-  new Set([T.GRASS,T.SAND,T.HILL]),               // Wall
-  new Set([T.GRASS,T.SAND,T.HILL]),               // Tower
-  new Set([T.GRASS,T.SAND]),                      // Farmland
-  new Set([T.GRASS,T.SAND,T.HILL]),               // Mine
-  new Set([T.GRASS,T.SAND,T.HILL]),               // Barracks
-  new Set([T.GRASS,T.SAND,T.HILL]),               // Forge
-  new Set([T.GRASS,T.SAND,T.HILL,T.FOREST,T.RIVER]), // Road
-  new Set([T.GRASS,T.SAND,T.HILL]),               // Outpost
-  new Set([T.GRASS,T.SAND,T.HILL]),               // Gate
+  _BUILD_TILES,                                                           // House
+  _BUILD_TILES,                                                           // Bakery
+  _BUILD_TILES,                                                           // Wall
+  _BUILD_TILES,                                                           // Tower
+  new Set([T.GRASS,T.SAND,T.TUNDRA]),                                    // Farmland
+  new Set([T.GRASS,T.SAND,T.HILL,T.TUNDRA]),                            // Mine
+  _BUILD_TILES,                                                           // Barracks
+  _BUILD_TILES,                                                           // Forge
+  new Set([T.GRASS,T.SAND,T.HILL,T.FOREST,T.RIVER,T.DESERT,T.TUNDRA]), // Road
+  _BUILD_TILES,                                                           // Outpost
+  _BUILD_TILES,                                                           // Gate
 ];
 
 // Tile footprint size per structure [w, h] — default 1×1
@@ -364,6 +365,44 @@ const STAMP = {
     '................',
     '................',
   ],
+  // Snowy tundra pine — narrow silhouette, snow (e) on branch tips, dark needles (D)
+  tundra_tree: [
+    '.......p........',
+    '......pep.......',
+    '.....pepep......',
+    '....peDeep......',
+    '...peDDeDeep....',
+    '..peeDDDDeep....',
+    '.peeeDDDDDeep...',
+    'peeDDDDdDDDeep..',
+    '.peeeeeeeeeeep..',
+    '.......TT.......',
+    '.......TT.......',
+    '.......tT.......',
+    '................',
+    '................',
+    '................',
+    '................',
+  ],
+  // Saguaro cactus — tall trunk, two arms, 3/4 shading (H=highlight left, C=mid, c=shadow)
+  cactus: [
+    '.......HC.......',
+    '.......HC.......',
+    '..H....HC....C..',
+    '..HC...HC...HC..',
+    '..HCCCCHCCCCC...',
+    '...HCCCHCCCC....',
+    '....HCCHCCC.....',
+    '....HCCHCCC.....',
+    '....HCCHCCC.....',
+    '....HCCHCCC.....',
+    '....HCCHCCC.....',
+    '....HCCHCCC.....',
+    '....HCCHCCC.....',
+    '....ccccccc.....',
+    '................',
+    '................',
+  ],
 };
 const TREE_SEASON_PAL = [
   { '.':null, 'p':'#0a3006', 'D':'#2a7a20', 'd':'#155010', 'l':'#40a030', 'T':'#5a3410', 't':'#3a2008' }, // Spring
@@ -377,6 +416,10 @@ const STAMP_PAL = {
   mtn:  { '.':null, 'W':'#ecf0ff', 's':'#8890a0', 'm':'#505560' },
   hill: { '.':null, 'h':'#6a5530', 'H':'#a88048' },
   peak: { '.':null, 'W':'#f4f8ff', 'w':'#c0ccec' },
+  // Snowy tundra pine: e=snow, D=dark blue-green needles, d=deep shadow, T=grey trunk
+  tundra_tree: { '.':null, 'p':'#1a2030', 'e':'#cce8ff', 'D':'#1a3828', 'd':'#0e2018', 'T':'#706878', 't':'#484050' },
+  // Desert cactus: C=cactus green, H=highlight, c=shadow/base
+  cactus: { '.':null, 'H':'#6ab840', 'C':'#4a8c28', 'c':'#1e4c10' },
 };
 
 // ── Villager sprites (16×16, 3/4 perspective, 2 frames) ──
