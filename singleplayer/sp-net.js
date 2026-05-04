@@ -102,6 +102,8 @@ function _handleServerMessage(msg) {
           }
         } catch {}
       }
+      if (msg.settled)    { settled    = true;             }
+      if (msg.townCenter) { townCenter = msg.townCenter;   }
       if (_seedResolve) {
         _seedResolve(msg.seed);
         _seedResolve = null;
@@ -253,6 +255,7 @@ function _applyState(s) {
 
   if (selectedVillager) {
     const fresh = villagers.find(v => v.id === selectedVillager.id);
+    if (fresh) fresh.selected = true;
     selectedVillager = fresh || null;
     if (!fresh) vpanel?.classList.remove('visible');
   }
