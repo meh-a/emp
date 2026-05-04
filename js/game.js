@@ -508,6 +508,13 @@ function handleCanvasClick(cx, cy) {
   }
 
   if (selectedVillager) {
+    // Check for ruin click — send villager to clear it
+    const clickedRuin = ruins.find(r => !r.cleared && r.discovered && r.tx === tx && r.ty === ty);
+    if (clickedRuin) {
+      netSend({ type: 'clear_ruin', villagerId: selectedVillager.id, ruinId: clickedRuin.id });
+      cameraFollow=false;
+      return;
+    }
     netSend({ type: 'move_villager', villagerId: selectedVillager.id, tx, ty });
     cameraFollow=false;
     return;
@@ -680,7 +687,7 @@ function update(dt) {
     }
   }
 
-  // ── WASD / arrow keys: move possessed knight, selected villager, or pan camera ──
+  // ── WASD / arrow keys: move controlled villager, or pan camera ──
   const PAN_ACCEL = 1800;
   const PAN_FRIC  = 10;
   let inputX = 0, inputY = 0;
@@ -689,22 +696,21 @@ function update(dt) {
   if (keys['w'] || keys['arrowup'])    inputY -= 1;
   if (keys['s'] || keys['arrowdown'])  inputY += 1;
 
-  if (possessedVillager && !possessedVillager._despawn) {
-    // WASD moves the possessed knight — send to server
-    const pv = possessedVillager;
-    if ((inputX !== 0 || inputY !== 0) && (pv.pathLen === 0) && pv.state !== 'fighting') {
-      const ntx = pv.tx + inputX, nty = pv.ty + inputY;
-      if (ntx >= 0 && ntx < MAP_W && nty >= 0 && nty < MAP_H
-          && WALKABLE_TILES.has(mapTiles[nty][ntx])
-          && !villagerBlocked[nty*MAP_W+ntx]) {
-        netSend({ type: 'move_villager', villagerId: pv.id, tx: ntx, ty: nty });
-      }
+  const _wasdTarget = (possessedVillager && !possessedVillager._despawn)
+    ? possessedVillager
+    : (selectedVillager && !selectedVillager._despawn ? selectedVillager : null);
+
+  if (_wasdTarget) {
+    if (inputX !== 0 || inputY !== 0) {
+      const len = Math.sqrt(inputX * inputX + inputY * inputY);
+      const dx = inputX / len, dy = inputY / len;
+      netSend({ type: 'wasd_move', villagerId: _wasdTarget.id, dx, dy, dt: Math.min(dt, 0.05) });
     }
-    // Camera tightly follows possessed knight
+    // Camera follows the controlled villager
     const sz = TILE_SZ * zoom;
     const alpha = 1 - Math.pow(0.5, dt * 14);
-    camX += (pv.x * sz - canvas.width  / 2 - camX) * alpha;
-    camY += (pv.y * sz - canvas.height / 2 - camY) * alpha;
+    camX += (_wasdTarget.x * sz - canvas.width  / 2 - camX) * alpha;
+    camY += (_wasdTarget.y * sz - canvas.height / 2 - camY) * alpha;
     clamp();
     camVX = 0; camVY = 0;
   } else {
