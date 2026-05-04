@@ -4,24 +4,27 @@
 // ═══════════════════════════════════════════════════
 //  CONSTANTS
 // ═══════════════════════════════════════════════════
-const MAP_W   = 200;
-const MAP_H   = 200;
+const MAP_W   = 300;
+const MAP_H   = 300;
 const TILE_SZ = 32;   // base pixel size per tile
 
 // Tile type enum
 const T = Object.freeze({
-  DEEP:0, WATER:1, SAND:2, GRASS:3, FOREST:4, HILL:5, MOUNTAIN:6, PEAK:7, RIVER:8
+  DEEP:0, WATER:1, SAND:2, GRASS:3, FOREST:4, HILL:5, MOUNTAIN:6, PEAK:7, RIVER:8,
+  SWAMP:9, DESERT:10, TUNDRA:11,
 });
 
 const TILE_NAME = [
   'Deep Water','Shallow Water','Sandy Shore',
-  'Grassland','Forest','Hills','Mountains','Snowy Peak','River'
+  'Grassland','Forest','Hills','Mountains','Snowy Peak','River',
+  'Swamp','Desert','Tundra',
 ];
 
 // Minimap / legend colors
 const TILE_COL_HEX = [
   '#1a4878','#2462a0','#b89650',
-  '#4a7830','#28501a','#7a6848','#6a5e50','#ccc8c0','#3c7ab8'
+  '#4a7830','#28501a','#7a6848','#6a5e50','#ccc8c0','#3c7ab8',
+  '#3a5228','#c8a050','#9ab8b0',
 ];
 const TILE_RGB = TILE_COL_HEX.map(h=>[
   parseInt(h.slice(1,3),16),
@@ -54,11 +57,12 @@ const EXPLORER_FOG_RADIUS = 16;  // explorers see further
 // ═══════════════════════════════════════════════════
 let SEED = Math.floor(Math.random() * 1_000_000);
 
-let mapTiles     = [];  // Uint8Array rows
-let mapHeight    = [];  // Float32Array rows  (0..1)
-let mapVariant   = [];  // Float32Array rows  (0..1, texture noise)
-let mapMoisture  = [];  // Float32Array rows  (0..1, kept after biome pass)
-let mapFertility = [];  // Uint8Array rows    (1..3, soil richness — revealed by farms)
+let mapTiles       = [];  // Uint8Array rows
+let mapHeight      = [];  // Float32Array rows  (0..1)
+let mapVariant     = [];  // Float32Array rows  (0..1, texture noise)
+let mapMoisture    = [];  // Float32Array rows  (0..1, kept after biome pass)
+let mapFertility   = [];  // Uint8Array rows    (1..3, soil richness — revealed by farms)
+let mapTemperature = [];  // Float32Array rows  (0..1, warm at center, cold at poles)
 
 // Fog of war (flat arrays for speed)
 let fogVisible  = new Uint8Array(MAP_W * MAP_H); // 1 = currently in vision
@@ -267,6 +271,8 @@ const ADJACENCY_TABLE = {
 
 // ── Resource nodes ────────────────────────────────────
 let resourceNodes = [];  // { id, type, tx, ty, radius, bonus, discovered, active }
+let banditCamps   = [];  // { id, tx, ty, hp, maxHp, destroyed }
+let ruins         = [];  // { id, tx, ty, cleared, discovered, reward }
 
 // Knight groups — client-side only; IDs persist across server state updates
 const knightGroups = {};
