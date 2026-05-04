@@ -2,7 +2,7 @@
 import { MAP_W, MAP_H, DAY_LENGTH, TC_HP_MAX, SEASON_LENGTH, SEASON_NAMES } from './constants.js';
 import { register as acRegister, login as acLogin, purchaseSlot as acPurchase, addGold as acAddGold } from './accounts.js';
 import { generate, generateTrees, preGenerateKingdomSites, WALKABLE_TILES } from './world.js';
-import { rebuildNavBlocked, placeBuilding, upgradeBuilding, deleteBuilding } from './buildings.js';
+import { rebuildNavBlocked, placeBuilding, upgradeBuilding, scaledCost } from './buildings.js';
 import {
   initKingdom, updateVillagers, updateRegrowth,
   updateSpawning, updateGold, updateFeeding,
@@ -22,10 +22,11 @@ export class GameRoom {
 
     // ── Shared world state ────────────────────────
     this.mapTiles     = [];
-    this.mapHeight    = [];
-    this.mapVariant   = [];
-    this.mapMoisture  = [];
-    this.mapFertility = [];
+    this.mapHeight      = [];
+    this.mapVariant     = [];
+    this.mapMoisture    = [];
+    this.mapFertility   = [];
+    this.mapTemperature = [];
     this.trees           = [];
     this._treeId         = 0;
     this.resourceNodes   = [];
@@ -53,8 +54,10 @@ export class GameRoom {
     this.clients = new Set();
 
     // ── Tick state ────────────────────────────────
-    this._tickInterval = null;
-    this._lastTick     = Date.now();
+    this._tickInterval  = null;
+    this._lastTick      = Date.now();
+    this._broadcastTick = 0;
+    this._perfBreakdown = { nav: [], villagers: [], combat: [], bots: [], fog: [], broadcast: [] };
   }
 
   // ── Lifecycle ────────────────────────────────────
@@ -182,7 +185,6 @@ export class GameRoom {
     this._lastTick = now;
 
     this._elapsed = (this._elapsed || 0) + dt;
-    // Drop ungraceful disconnects after 3 minutes; graceful offline kingdoms persist
     this.kingdoms = this.kingdoms.filter(k =>
       k.ws !== null ||
       k._gracefulOffline ||
@@ -190,6 +192,10 @@ export class GameRoom {
     );
 
     if (!this.kingdoms.length) return;
+
+    // ── Per-section timing (always on, tiny overhead) ──────────────
+    const _t = () => performance.now();
+    const _pb = this._perfBreakdown;
 
     // Shared day/night
     const prevDayTime = this.dayTime;
@@ -210,13 +216,10 @@ export class GameRoom {
       }
     }
 
-    // World regrowth (once per tick, shared)
+    // World regrowth
     updateRegrowth(this, dt);
 
-    // Rebuild nav for all kingdoms each tick (trees are shared)
-    for (const k of this.kingdoms) rebuildNavBlocked(k);
-
-    // Build each kingdom's enemy view (bots + other player kingdoms)
+    // Enemy views
     for (const k of this.kingdoms) {
       k.enemyKingdoms = [
         ...this.botKingdoms,
@@ -226,33 +229,57 @@ export class GameRoom {
       ];
     }
 
-    // Snapshot tree IDs before simulation to detect chopped trees
+    let _t0;
     const prevTreeIds = new Set(this.trees.map(t => t.id));
 
-    // Per-kingdom simulation
+    // Villager AI
+    _t0 = _t();
     for (const k of this.kingdoms) {
       if (k.gameState !== 'playing') continue;
       updateVillagers(k, dt);
       updateSpawning(k, dt);
       updateGold(k, dt);
       updateFeeding(k, dt);
+    }
+    _pb.villagers.push(_t() - _t0);
+
+    // Combat
+    _t0 = _t();
+    for (const k of this.kingdoms) {
+      if (k.gameState !== 'playing') continue;
       updateCombat(this, k, dt);
       updateNPCs(k, dt);
       updateBandits(k, dt);
-      this._updateFog(k); // needed for server-side fog checks (combat targeting, outpost placement)
     }
+    _pb.combat.push(_t() - _t0);
 
-    // Shared bot management
+    // Bot kingdoms
+    _t0 = _t();
     updateBotKingdoms(this, dt);
+    _pb.bots.push(_t() - _t0);
 
-    // Notify all kingdoms of any trees that were chopped this tick
+    // Fog of war
+    _t0 = _t();
+    for (const k of this.kingdoms) this._updateFog(k);
+    _pb.fog.push(_t() - _t0);
+
+    // Removed trees — O(n) set diff instead of O(n²) linear scan
+    const currentTreeIds = new Set(this.trees.map(t => t.id));
     for (const id of prevTreeIds) {
-      if (!this.trees.some(t => t.id === id)) {
+      if (!currentTreeIds.has(id)) {
         for (const k of this.kingdoms) k._removedTreeIds.push(id);
       }
     }
 
+    // Broadcast + serialization — 10 Hz (every tick)
+    _t0 = _t();
     this._broadcast();
+    _pb.broadcast.push(_t() - _t0);
+
+    // Cap each buffer at 60 samples (~6 seconds)
+    for (const key of Object.keys(_pb)) {
+      if (_pb[key].length > 60) _pb[key].shift();
+    }
   }
 
   // ── Per-kingdom fog of war ─────────────────────────
@@ -285,6 +312,19 @@ export class GameRoom {
         }
       }
     }
+    // Discover resource nodes and ruins when their tile is explored
+    if (this.resourceNodes) {
+      for (const n of this.resourceNodes) {
+        if (!n.discovered && kingdom.fogExplored[n.ty * MAP_W + n.tx]) {
+          n.discovered = true; n.active = true;
+        }
+      }
+    }
+    if (this.ruins) {
+      for (const r of this.ruins) {
+        if (!r.discovered && kingdom.fogExplored[r.ty * MAP_W + r.tx]) r.discovered = true;
+      }
+    }
   }
 
   // ── Client message handler ────────────────────────
@@ -308,12 +348,67 @@ export class GameRoom {
           if (mv) moveVillagerTo(kingdom, mv, data.tx, data.ty);
           break;
         }
+        case 'wasd_move': {
+          const wv = kingdom.villagers.find(v => v.id === data.villagerId);
+          if (!wv) break;
+          // Clear AI state so pathfinding doesn't fight manual control
+          wv.path = []; wv.state = 'moving'; wv.buildTarget = null;
+          wv.chopTarget = null; wv.farmTarget = null; wv.mineTarget = null;
+          wv.forgeTarget = null; wv.repairTarget = null; wv.bakeryTarget = null;
+          const _spd = 3.0;
+          const _dt  = Math.min(data.dt || 0.016, 0.05);
+          const _nx  = wv.x + data.dx * _spd * _dt;
+          const _ny  = wv.y + data.dy * _spd * _dt;
+          const _blocked = kingdom.villagerBlocked;
+          // Slide collision — try each axis independently
+          const _xtile = Math.floor(_nx), _ytile = Math.floor(wv.y);
+          if (_xtile >= 0 && _xtile < MAP_W && _ytile >= 0 && _ytile < MAP_H
+              && WALKABLE_TILES.has(kingdom.mapTiles[_ytile][_xtile])
+              && !_blocked[_ytile * MAP_W + _xtile]) {
+            wv.x = _nx;
+          }
+          const _xtile2 = Math.floor(wv.x), _ytile2 = Math.floor(_ny);
+          if (_xtile2 >= 0 && _xtile2 < MAP_W && _ytile2 >= 0 && _ytile2 < MAP_H
+              && WALKABLE_TILES.has(kingdom.mapTiles[_ytile2][_xtile2])
+              && !_blocked[_ytile2 * MAP_W + _xtile2]) {
+            wv.y = _ny;
+          }
+          wv.tx = Math.floor(wv.x); wv.ty = Math.floor(wv.y);
+          break;
+        }
         case 'upgrade_building': {
           upgradeBuilding(kingdom, data.buildingId);
           break;
         }
+        case 'clear_ruin': {
+          const ruin = this.ruins?.find(r => r.id === data.ruinId && !r.cleared);
+          const cv = ruin && kingdom.villagers.find(v => v.id === data.villagerId);
+          if (ruin && cv) {
+            cv.buildTarget = null; cv.chopTarget = null; cv.farmTarget = null;
+            cv.mineTarget = null;  cv.forgeTarget = null; cv.ruinTarget = { id: ruin.id, tx: ruin.tx, ty: ruin.ty };
+            cv.state = 'moving'; cv.ruinTimer = 0;
+            moveVillagerTo(kingdom, cv, ruin.tx, ruin.ty);
+          }
+          break;
+        }
         case 'delete_building': {
-          deleteBuilding(kingdom, data.buildingId);
+          const _idx = kingdom.buildings.findIndex(b => b.id === data.buildingId && !b.complete);
+          if (_idx !== -1) {
+            const _b = kingdom.buildings[_idx];
+            const _cost = scaledCost(kingdom, _b.type);
+            if (_cost.wood)  kingdom.wood  += Math.floor(_cost.wood  * 0.5);
+            if (_cost.stone) kingdom.stone += Math.floor(_cost.stone * 0.5);
+            if (_cost.iron)  kingdom.iron  += Math.floor(_cost.iron  * 0.5);
+            if (_cost.gold)  kingdom.gold  += Math.floor(_cost.gold  * 0.5);
+            for (const v of kingdom.villagers) {
+              if (v.buildTarget === data.buildingId) {
+                v.buildTarget = null; v.state = 'idle'; v.idleTimer = 1 + Math.random() * 2;
+              }
+            }
+            kingdom.buildCounts[_b.type] = Math.max(0, (kingdom.buildCounts[_b.type] || 1) - 1);
+            kingdom.buildings.splice(_idx, 1);
+            rebuildNavBlocked(kingdom);
+          }
           break;
         }
         case 'account_register':
@@ -437,6 +532,10 @@ export class GameRoom {
       projectiles:   k.projectiles,
       npcs:          k.npcs.map(_stripNPC),
       bandits:       k.bandits,
+      // World structures (room-level, filtered to discovered/alive)
+      resourceNodes: this.resourceNodes?.filter(n => n.discovered) ?? [],
+      banditCamps:   this.banditCamps ?? [],
+      ruins:         this.ruins?.filter(r => !r.cleared) ?? [],
       // Map
       tileChanges: tileChanges.length ? tileChanges : undefined,
       roadTiles:   [...k.roadTiles],
