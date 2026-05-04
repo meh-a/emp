@@ -8,7 +8,7 @@ function drawTreeObj(tree, sz) {
   const wobble = _choppingIds.has(tree.id) ? Math.sin(time * 24) * treeSz * 0.09 : 0;
   const cx = bx + treeSz * 0.5 + wobble;
   const fi = tree.ty * MAP_W + tree.tx;
-  const inFog = !fogVisible[fi]; // explored but currently dark
+  const inFog = !fogVisible[fi];
 
   if (inFog) ctx.globalAlpha = 0.35;
 
@@ -18,7 +18,21 @@ function drawTreeObj(tree, sz) {
   ctx.ellipse(cx, by + treeSz * 0.84, treeSz * 0.22, treeSz * 0.07, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  drawSprite(STAMP.tree, TREE_SEASON_PAL[season] ?? STAMP_PAL.tree, Math.floor(bx + wobble), Math.floor(by), treeSz);
+  // Pick sprite based on tile biome
+  const tile = mapTiles[tree.ty]?.[tree.tx];
+  let sprite, pal;
+  if (tile === T.TUNDRA) {
+    sprite = STAMP.tundra_tree;
+    pal    = STAMP_PAL.tundra_tree;
+  } else if (tile === T.DESERT) {
+    sprite = STAMP.cactus;
+    pal    = STAMP_PAL.cactus;
+  } else {
+    sprite = STAMP.tree;
+    pal    = TREE_SEASON_PAL[season] ?? STAMP_PAL.tree;
+  }
+
+  drawSprite(sprite, pal, Math.floor(bx + wobble), Math.floor(by), treeSz);
 
   if (inFog) ctx.globalAlpha = 1.0;
 }
@@ -360,6 +374,18 @@ function drawObjects() {
     if (!fogExplored[Math.floor(b.y)*MAP_W+Math.floor(b.x)]) continue;
     objs.push({k:9, sortY: b.y, d: b});
   }
+  for (const camp of banditCamps) {
+    if (camp.destroyed) continue;
+    if (camp.tx < c0 || camp.tx > c1 || camp.ty < r0 || camp.ty > r1) continue;
+    if (!fogExplored[camp.ty * MAP_W + camp.tx]) continue;
+    objs.push({k:10, sortY: camp.ty + 1.0, d: camp});
+  }
+  for (const ruin of ruins) {
+    if (ruin.cleared || !ruin.discovered) continue;
+    if (ruin.tx < c0 || ruin.tx > c1 || ruin.ty < r0 || ruin.ty > r1) continue;
+    if (!fogExplored[ruin.ty * MAP_W + ruin.tx]) continue;
+    objs.push({k:11, sortY: ruin.ty + 1.0, d: ruin});
+  }
   for (const eu of enemyUnits) {
     if (eu._despawn) continue;
     const fi = Math.floor(eu.y)*MAP_W + Math.floor(eu.x);
@@ -397,7 +423,9 @@ function drawObjects() {
     else if (k===3) drawVillagerChar(d, d.x*sz-camX, d.y*sz-camY, sz);
     else if (k===4) drawNPCChar(d, d.x*sz-camX, d.y*sz-camY, sz);
     else if (k===5) drawEnemyUnitChar(d, d.x*sz-camX, d.y*sz-camY, sz);
-    else if (k===9) drawBanditChar(d, d.x*sz-camX, d.y*sz-camY, sz);
+    else if (k===9)  drawBanditChar(d, d.x*sz-camX, d.y*sz-camY, sz);
+    else if (k===10) drawBanditCamp(d, d.tx*sz-camX, d.ty*sz-camY, sz);
+    else if (k===11) drawRuin(d, d.tx*sz-camX, d.ty*sz-camY, sz);
     else if (k===6) drawEnemyTC(d, sz);
     else if (k===7) drawEnemyBuildingObj(d, sz);
     else            drawEnemyVillagerChar(d, d.x*sz-camX, d.y*sz-camY, sz, obj.ekIsPlayer, obj.ekId);
@@ -707,4 +735,162 @@ function drawVillagerChar(v, px, py, sz) {
     ctx.fillStyle = 'rgba(255,238,188,0.96)';
     ctx.fillText(v.name, px, ny);
   }
+}
+
+// ═══════════════════════════════════════════════════
+//  BANDIT CAMP
+// ═══════════════════════════════════════════════════
+function drawBanditCamp(camp, px, py, sz) {
+  const w = sz * 1.8;
+  const h = sz * 1.4;
+  const x = px + sz * 0.5 - w * 0.5;
+  const y = py - h * 0.15;
+
+  const inFog = !fogVisible[camp.ty * MAP_W + camp.tx];
+  if (inFog) ctx.globalAlpha = 0.4;
+
+  // Ground shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.20)';
+  ctx.beginPath();
+  ctx.ellipse(px + sz * 0.5, py + sz * 0.92, w * 0.45, sz * 0.12, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Palisade base (dark log wall)
+  ctx.fillStyle = '#3d2810';
+  ctx.fillRect(Math.floor(x), Math.floor(y + h * 0.35), Math.ceil(w), Math.ceil(h * 0.62));
+
+  // Log texture — horizontal planks
+  ctx.fillStyle = '#5a3c18';
+  for (let i = 0; i < 3; i++) {
+    const ly = Math.floor(y + h * 0.40 + i * h * 0.18);
+    ctx.fillRect(Math.floor(x + 2), ly, Math.ceil(w - 4), Math.max(2, Math.floor(h * 0.14)));
+  }
+
+  // Pointed stakes along top
+  ctx.fillStyle = '#2c1c08';
+  const stakeCount = Math.max(3, Math.floor(w / (sz * 0.22)));
+  const stakeW = w / stakeCount;
+  for (let i = 0; i < stakeCount; i++) {
+    const sx = x + i * stakeW + stakeW * 0.15;
+    const sy = y + h * 0.35;
+    const sw = stakeW * 0.7;
+    const sh = h * 0.28;
+    ctx.beginPath();
+    ctx.moveTo(Math.floor(sx), Math.floor(sy + sh));
+    ctx.lineTo(Math.floor(sx + sw * 0.5), Math.floor(sy));
+    ctx.lineTo(Math.floor(sx + sw), Math.floor(sy + sh));
+    ctx.fill();
+  }
+
+  // Fire glow in center
+  const pulse = 0.7 + 0.3 * Math.sin(time * 4.5 + camp.id * 1.3);
+  const fireX = px + sz * 0.5;
+  const fireY = py + sz * 0.55;
+  const fireR = sz * 0.3 * pulse;
+  const grad = ctx.createRadialGradient(fireX, fireY, 0, fireX, fireY, fireR);
+  grad.addColorStop(0,   `rgba(255,220,60,${0.85 * pulse})`);
+  grad.addColorStop(0.4, `rgba(255,100,20,${0.55 * pulse})`);
+  grad.addColorStop(1,   'rgba(200,40,0,0)');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.ellipse(fireX, fireY, fireR, fireR * 0.7, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // HP bar
+  if (camp.hp < camp.maxHp) {
+    drawHealthBar(Math.floor(x), Math.floor(y + h * 0.35) - 5, camp.hp, camp.maxHp, w);
+  }
+
+  // Label at high zoom
+  if (sz >= 36) {
+    const ly = Math.floor(y + h + 3);
+    ctx.font = `bold ${Math.max(8, sz * 0.13)}px 'Silkscreen',monospace`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+    ctx.strokeText('Bandit Camp', px + sz * 0.5, ly);
+    ctx.fillStyle = 'rgba(220,80,40,0.95)';
+    ctx.fillText('Bandit Camp', px + sz * 0.5, ly);
+    ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  }
+
+  if (inFog) ctx.globalAlpha = 1.0;
+}
+
+// ═══════════════════════════════════════════════════
+//  RUIN
+// ═══════════════════════════════════════════════════
+function drawRuin(ruin, px, py, sz) {
+  const w = sz * 1.6;
+  const h = sz * 1.2;
+  const x = px + sz * 0.5 - w * 0.5;
+  const y = py - h * 0.05;
+
+  const inFog = !fogVisible[ruin.ty * MAP_W + ruin.tx];
+  if (inFog) ctx.globalAlpha = 0.4;
+
+  // Ground moss / base
+  ctx.fillStyle = 'rgba(50,70,30,0.45)';
+  ctx.beginPath();
+  ctx.ellipse(px + sz * 0.5, py + sz * 0.9, w * 0.5, sz * 0.14, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Broken stone walls — draw as irregular stone blocks
+  const blocks = [
+    {rx: 0.0, ry: 0.25, rw: 0.28, rh: 0.55},
+    {rx: 0.72, ry: 0.30, rw: 0.28, rh: 0.50},
+    {rx: 0.18, ry: 0.20, rw: 0.55, rh: 0.22},
+  ];
+  ctx.fillStyle = '#7a7060';
+  for (const b of blocks) {
+    ctx.fillRect(
+      Math.floor(x + b.rx * w), Math.floor(y + b.ry * h),
+      Math.ceil(b.rw * w), Math.ceil(b.rh * h)
+    );
+  }
+  // Stone highlight
+  ctx.fillStyle = '#a09880';
+  for (const b of blocks) {
+    ctx.fillRect(
+      Math.floor(x + b.rx * w + 1), Math.floor(y + b.ry * h + 1),
+      Math.ceil(b.rw * w * 0.45), Math.ceil(b.rh * h * 0.22)
+    );
+  }
+  // Dark cracks
+  ctx.fillStyle = '#4a4438';
+  for (const b of blocks) {
+    const cx2 = Math.floor(x + (b.rx + b.rw * 0.5) * w);
+    const cy2 = Math.floor(y + (b.ry + b.rh * 0.5) * h);
+    ctx.fillRect(cx2, Math.floor(y + b.ry * h), 1, Math.ceil(b.rh * h));
+  }
+
+  // Scattered rubble dots
+  ctx.fillStyle = '#6a6058';
+  const rubbleSeed = ruin.id * 7919;
+  for (let i = 0; i < 5; i++) {
+    const rx = ((rubbleSeed * (i + 1) * 1301) % 1000) / 1000;
+    const ry = ((rubbleSeed * (i + 1) * 997)  % 1000) / 1000;
+    const rs = Math.max(1, sz * 0.07);
+    ctx.fillRect(Math.floor(x + rx * w), Math.floor(y + h * 0.6 + ry * h * 0.35), Math.ceil(rs), Math.ceil(rs));
+  }
+
+  // Glint / reward indicator
+  const glint = 0.5 + 0.5 * Math.sin(time * 2.8 + ruin.id * 2.1);
+  ctx.fillStyle = `rgba(255,230,100,${0.4 * glint})`;
+  ctx.beginPath();
+  ctx.arc(px + sz * 0.5, py + sz * 0.45, sz * 0.15 * (0.8 + 0.2 * glint), 0, Math.PI * 2);
+  ctx.fill();
+
+  // Label at high zoom
+  if (sz >= 36) {
+    const ly = Math.floor(y + h + 3);
+    ctx.font = `bold ${Math.max(8, sz * 0.13)}px 'Silkscreen',monospace`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+    ctx.strokeText('Ancient Ruins', px + sz * 0.5, ly);
+    ctx.fillStyle = 'rgba(200,185,100,0.95)';
+    ctx.fillText('Ancient Ruins', px + sz * 0.5, ly);
+    ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  }
+
+  if (inFog) ctx.globalAlpha = 1.0;
 }
