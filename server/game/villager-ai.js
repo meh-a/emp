@@ -50,6 +50,7 @@ export function mkVillager(room, role, tx, ty) {
     mineTarget: null, mineTimer: 0,
     forgeTarget: null, forgeTimer: 0,
     repairTarget: null, repairTimer: 0,
+    ruinTarget:   null, ruinTimer:   0,
     hunger: 1.0,
     tired: 0.0,
     _goingSleep: false, _sleepTarget: null,
@@ -108,7 +109,7 @@ export function updateRegrowth(room, dt) {
     if (room.mapTiles[r.ty]?.[r.tx] === 4 /* T.FOREST */ && !room.trees.some(t => t.tx === r.tx && t.ty === r.ty)) {
       room.trees.push({ id: room._treeId++, tx: r.tx, ty: r.ty,
         ox: 0.04 + Math.random()*0.06, oy: 0.04 + Math.random()*0.06, scale: 0.88 });
-      // navBlocked is rebuilt for all kingdoms in GameRoom._tick(); no call needed here
+      for (const k of room.kingdoms) rebuildNavBlocked(k);
     }
   }
 }
@@ -232,155 +233,187 @@ export function updateVillagers(room, dt) {
       if (!v.chopTarget||!treesById.has(v.chopTarget.id)) {
         v.chopTarget=null; v.state='idle'; v.idleTimer=1; continue;
       }
-      const forestBonus = getNodeBonus(room, v.chopTarget.tx, v.chopTarget.ty, 'forest');
-      const chopOutpost = getOutpostBonus(room, v.chopTarget.tx, v.chopTarget.ty);
-      v.chopTimer+=dt * workSpeed(v) * forestBonus * chopOutpost;
-      if (v.chopTimer>=CHOP_TIME) {
-        v.chopTimer=0;
-        room.wood += CHOP_YIELD;
-        if (v.tier === 5 && Math.random() < 0.5) room.wood += CHOP_YIELD; // Ancient Forester: 50% double log
-        gainXP(room, v);
-        const {id:tid,tx:ct,ty:cty}=v.chopTarget;
-        room.trees=room.trees.filter(t=>t.id!==tid);
-        treesById.delete(tid);
-        rebuildNavBlocked(room);
-        const inAncientForest = room.resourceNodes.some(n =>
-          n.type==='forest' && n.active && Math.hypot(n.tx-ct, n.ty-cty) <= n.radius
-        );
-        if (inAncientForest || v.tier === 5) { // Ancient Forester: always replant sapling
-          const regrowMult = v.tier === 5 ? 0.5 : 1;
-          room.regrowthQueue.push({ tx: ct, ty: cty, timer: REGROWTH_BASE * regrowMult * REGROWTH_MULT[getSeason(room)] });
-        } else if (!room.trees.some(t=>t.tx===ct&&t.ty===cty)&&room.mapTiles[cty]&&room.mapTiles[cty][ct]===4) {
-          room.mapTiles[cty][ct]=3; // GRASS
-          if (room._tileChanges) room._tileChanges.push({ ty: cty, tx: ct, tile: 3 });
+      if (Math.hypot(v.x-(v.chopTarget.tx+0.5), v.y-(v.chopTarget.ty+0.5)) > 1.5) {
+        if (!v.path.length) {
+          const p=findPathCached(room,v,v.chopTarget.tx,v.chopTarget.ty,room.villagerBlocked);
+          if (p&&p.length>1) v.path=p.slice(1);
         }
-        v.chopTarget=null; v.state='idle'; v.idleTimer=0.5+Math.random()*1.5;
+      } else {
+        const forestBonus = getNodeBonus(room, v.chopTarget.tx, v.chopTarget.ty, 'forest');
+        const chopOutpost = getOutpostBonus(room, v.chopTarget.tx, v.chopTarget.ty);
+        v.chopTimer+=dt * workSpeed(v) * forestBonus * chopOutpost;
+        if (v.chopTimer>=CHOP_TIME) {
+          v.chopTimer=0;
+          room.wood += CHOP_YIELD;
+          if (v.tier === 5 && Math.random() < 0.5) room.wood += CHOP_YIELD; // Ancient Forester: 50% double log
+          gainXP(room, v);
+          const {id:tid,tx:ct,ty:cty}=v.chopTarget;
+          room.trees=room.trees.filter(t=>t.id!==tid);
+          treesById.delete(tid);
+          rebuildNavBlocked(room);
+          const inAncientForest = room.resourceNodes.some(n =>
+            n.type==='forest' && n.active && Math.hypot(n.tx-ct, n.ty-cty) <= n.radius
+          );
+          if (inAncientForest || v.tier === 5) {
+            const regrowMult = v.tier === 5 ? 0.5 : 1;
+            room.regrowthQueue.push({ tx: ct, ty: cty, timer: REGROWTH_BASE * regrowMult * REGROWTH_MULT[getSeason(room)] });
+          } else if (!room.trees.some(t=>t.tx===ct&&t.ty===cty)&&room.mapTiles[cty]&&room.mapTiles[cty][ct]===4) {
+            room.mapTiles[cty][ct]=3; // GRASS
+            if (room._tileChanges) room._tileChanges.push({ ty: cty, tx: ct, tile: 3 });
+          }
+          v.chopTarget=null; v.state='idle'; v.idleTimer=0.5+Math.random()*1.5;
+        }
+        continue;
       }
-      continue;
     }
 
     if (v.state==='farming') {
       if (!v.farmTarget||!buildingsById.get(v.farmTarget.id)?.complete) {
         v.farmTarget=null; v.state='idle'; v.idleTimer=1; continue;
       }
-      const _season = getSeason(room);
-      const farmOutpost = getOutpostBonus(room, v.farmTarget.tx, v.farmTarget.ty);
-      v.farmTimer+=dt * workSpeed(v) * FARM_SPEED[_season] * (v.farmTarget.adjacencyBonus || 1.0) * (v.farmTarget.fertility || 1) * farmOutpost;
-      if (v.farmTimer>=FARM_TIME) {
-        v.farmTimer=0;
-        if (_season !== 3) { // winter produces no crops
-          const farmBonus = getNodeBonus(room, v.farmTarget.tx, v.farmTarget.ty, 'farmland');
-          const deltaBonus = getNodeBonus(room, v.farmTarget.tx, v.farmTarget.ty, 'delta');
-          const soilFertility = v.farmTarget.fertility || 1.0;
-          room.crops += Math.round(FARM_YIELD * Math.max(farmBonus, deltaBonus) * soilFertility);
-          gainXP(room, v);
-          if (v.tier === 5) { // Soil Whisperer: grow fertility and spread to adjacent farmland
-            v.farmTarget.fertility = Math.min(2.0, soilFertility + 0.05);
-            for (const b of room.buildings) {
-              if (b.type !== 4 || !b.complete || b.id === v.farmTarget.id) continue;
-              if (Math.abs(b.tx - v.farmTarget.tx) + Math.abs(b.ty - v.farmTarget.ty) <= 3)
-                b.fertility = Math.min(1.5, (b.fertility || 1) + 0.02);
+      if (Math.hypot(v.x-(v.farmTarget.tx+0.5), v.y-(v.farmTarget.ty+0.5)) > 1.5) {
+        if (!v.path.length) {
+          const p=findPathCached(room,v,v.farmTarget.tx,v.farmTarget.ty,room.villagerBlocked);
+          if (p&&p.length>1) v.path=p.slice(1);
+        }
+      } else {
+        const _season = getSeason(room);
+        const farmOutpost = getOutpostBonus(room, v.farmTarget.tx, v.farmTarget.ty);
+        v.farmTimer+=dt * workSpeed(v) * FARM_SPEED[_season] * (v.farmTarget.adjacencyBonus || 1.0) * (v.farmTarget.fertility || 1) * farmOutpost;
+        if (v.farmTimer>=FARM_TIME) {
+          v.farmTimer=0;
+          if (_season !== 3) {
+            const farmBonus = getNodeBonus(room, v.farmTarget.tx, v.farmTarget.ty, 'farmland');
+            const deltaBonus = getNodeBonus(room, v.farmTarget.tx, v.farmTarget.ty, 'delta');
+            const soilFertility = v.farmTarget.fertility || 1.0;
+            room.crops += Math.round(FARM_YIELD * Math.max(farmBonus, deltaBonus) * soilFertility);
+            gainXP(room, v);
+            if (v.tier === 5) { // Soil Whisperer: grow fertility and spread to adjacent farmland
+              v.farmTarget.fertility = Math.min(2.0, soilFertility + 0.05);
+              for (const b of room.buildings) {
+                if (b.type !== 4 || !b.complete || b.id === v.farmTarget.id) continue;
+                if (Math.abs(b.tx - v.farmTarget.tx) + Math.abs(b.ty - v.farmTarget.ty) <= 3)
+                  b.fertility = Math.min(1.5, (b.fertility || 1) + 0.02);
+              }
             }
           }
+          v.state='idle'; v.idleTimer=1+Math.random()*2;
         }
-        v.state='idle'; v.idleTimer=1+Math.random()*2;
+        continue;
       }
-      continue;
     }
 
     if (v.state==='baking') {
       if (!v.bakeryTarget||!buildingsById.get(v.bakeryTarget.id)?.complete) {
         v.bakeryTarget=null; v.state='idle'; v.idleTimer=1; continue;
       }
-      if (room.crops < BAKE_COST) {
-        v.state='idle'; v.idleTimer=3+Math.random()*3; continue;
+      if (Math.hypot(v.x-(v.bakeryTarget.tx+0.5), v.y-(v.bakeryTarget.ty+0.5)) > 1.5) {
+        if (!v.path.length) {
+          const p=findPathCached(room,v,v.bakeryTarget.tx,v.bakeryTarget.ty,room.villagerBlocked);
+          if (p&&p.length>1) v.path=p.slice(1);
+        }
+      } else {
+        if (room.crops < BAKE_COST) {
+          v.state='idle'; v.idleTimer=3+Math.random()*3; continue;
+        }
+        v.bakeTimer+=dt * workSpeed(v) * (v.bakeryTarget.adjacencyBonus || 1.0);
+        if (v.bakeTimer>=BAKE_TIME) {
+          v.bakeTimer=0; room.crops-=BAKE_COST;
+          const bakeBonus = getNodeBonus(room, v.bakeryTarget.tx, v.bakeryTarget.ty, 'farmland');
+          const bakeTier = v.bakeryTarget.tier || 1;
+          const bakeTierMult = bakeTier === 3 ? 2.5 : bakeTier === 2 ? 1.8 : 1.0;
+          const feastMult = v.tier === 5 ? 1.5 : 1.0; // Feast Keeper: 50% bonus food
+          room.food += Math.round(BAKE_YIELD * bakeTierMult * (bakeBonus > 1.0 ? 1.3 : 1.0) * feastMult);
+          gainXP(room, v);
+          v.state='idle'; v.idleTimer=0.5+Math.random()*1.5;
+        }
+        continue;
       }
-      v.bakeTimer+=dt * workSpeed(v) * (v.bakeryTarget.adjacencyBonus || 1.0);
-      if (v.bakeTimer>=BAKE_TIME) {
-        v.bakeTimer=0; room.crops-=BAKE_COST;
-        const bakeBonus = getNodeBonus(room, v.bakeryTarget.tx, v.bakeryTarget.ty, 'farmland');
-        const bakeTier = v.bakeryTarget.tier || 1;
-        const bakeTierMult = bakeTier === 3 ? 2.5 : bakeTier === 2 ? 1.8 : 1.0;
-        const feastMult = v.tier === 5 ? 1.5 : 1.0; // Feast Keeper: 50% bonus food
-        room.food += Math.round(BAKE_YIELD * bakeTierMult * (bakeBonus > 1.0 ? 1.3 : 1.0) * feastMult);
-        gainXP(room, v);
-        v.state='idle'; v.idleTimer=0.5+Math.random()*1.5;
-      }
-      continue;
     }
 
     if (v.state==='mining') {
       if (!v.mineTarget||!buildingsById.get(v.mineTarget.id)?.complete) {
         v.mineTarget=null; v.state='idle'; v.idleTimer=1; continue;
       }
-      const mineOutpost = getOutpostBonus(room, v.mineTarget.tx, v.mineTarget.ty);
-      v.mineTimer+=dt * workSpeed(v) * (v.mineTarget.adjacencyBonus || 1.0) * (v.mineTarget.mountainBonus || 1.0) * mineOutpost;
-      if (v.mineTimer>=MINE_TIME) {
-        v.mineTimer=0;
-        const quarryBonus = getNodeBonus(room, v.mineTarget.tx, v.mineTarget.ty, 'quarry');
-        const mineTier = v.mineTarget.tier || 1;
-        const stoneMult = mineTier === 3 ? 2.0 : mineTier === 2 ? 1.5 : 1.0;
-        if (v.tier >= 5) {
-          // Ironminer: T5 stoneminers switch entirely to iron production
-          room.iron += 2 + (mineTier >= 2 ? 1 : 0) + (mineTier >= 3 ? 1 : 0);
-        } else {
-          room.stone += Math.round(MINE_YIELD * quarryBonus * stoneMult);
-          if (v.tier===3 && Math.random()<MINE_IRON_CHANCE) room.iron++;
-          if (isNearIronVein(room, v.mineTarget.tx, v.mineTarget.ty)) room.iron++;
-          if (mineTier === 2) room.iron++;
-          if (mineTier === 3) room.iron += 3;
+      if (Math.hypot(v.x-(v.mineTarget.tx+0.5), v.y-(v.mineTarget.ty+0.5)) > 1.5) {
+        if (!v.path.length) {
+          const p=findPathCached(room,v,v.mineTarget.tx,v.mineTarget.ty,room.villagerBlocked);
+          if (p&&p.length>1) v.path=p.slice(1);
         }
-        gainXP(room, v);
-        // Vein Sense: T5 StoneMiner reveals nearby inactive resource nodes
-        if (v.tier === 5) {
-          for (const n of room.resourceNodes) {
-            if (!n.active && Math.hypot(n.tx - v.mineTarget.tx, n.ty - v.mineTarget.ty) <= 18) {
-              n.active = true;
-              room.notify(`${v.name} senses a ${n.type} deposit nearby!`, 'info');
+      } else {
+        const mineOutpost = getOutpostBonus(room, v.mineTarget.tx, v.mineTarget.ty);
+        v.mineTimer+=dt * workSpeed(v) * (v.mineTarget.adjacencyBonus || 1.0) * (v.mineTarget.mountainBonus || 1.0) * mineOutpost;
+        if (v.mineTimer>=MINE_TIME) {
+          v.mineTimer=0;
+          const quarryBonus = getNodeBonus(room, v.mineTarget.tx, v.mineTarget.ty, 'quarry');
+          const mineTier = v.mineTarget.tier || 1;
+          const stoneMult = mineTier === 3 ? 2.0 : mineTier === 2 ? 1.5 : 1.0;
+          if (v.tier >= 5) {
+            room.iron += 2 + (mineTier >= 2 ? 1 : 0) + (mineTier >= 3 ? 1 : 0);
+          } else {
+            room.stone += Math.round(MINE_YIELD * quarryBonus * stoneMult);
+            if (v.tier===3 && Math.random()<MINE_IRON_CHANCE) room.iron++;
+            if (isNearIronVein(room, v.mineTarget.tx, v.mineTarget.ty)) room.iron++;
+            if (mineTier === 2) room.iron++;
+            if (mineTier === 3) room.iron += 3;
+          }
+          gainXP(room, v);
+          if (v.tier === 5) {
+            for (const n of room.resourceNodes) {
+              if (!n.active && Math.hypot(n.tx - v.mineTarget.tx, n.ty - v.mineTarget.ty) <= 18) {
+                n.active = true;
+                room.notify(`${v.name} senses a ${n.type} deposit nearby!`, 'info');
+              }
             }
           }
+          v.state='idle'; v.idleTimer=0.5+Math.random()*1.5;
         }
-        v.state='idle'; v.idleTimer=0.5+Math.random()*1.5;
+        continue;
       }
-      continue;
     }
 
     if (v.state==='forging') {
       if (!v.forgeTarget||!buildingsById.get(v.forgeTarget.id)?.complete) {
         v.forgeTarget=null; v.state='idle'; v.idleTimer=1; continue;
       }
-      let tier=-1;
-      for (let t=2;t>=1;t--) {
-        const cost=CRAFT_COST[t];
-        if (Object.entries(cost).every(([r,n])=>({wood:room.wood,stone:room.stone,iron:room.iron,food:room.food,crops:room.crops,gold:room.gold})[r]>=n)) {
-          tier=t; break;
+      if (Math.hypot(v.x-(v.forgeTarget.tx+0.5), v.y-(v.forgeTarget.ty+0.5)) > 1.5) {
+        if (!v.path.length) {
+          const p=findPathCached(room,v,v.forgeTarget.tx,v.forgeTarget.ty,room.villagerBlocked);
+          if (p&&p.length>1) v.path=p.slice(1);
         }
-      }
-      if (tier<0) { v.state='idle'; v.idleTimer=4+Math.random()*4; continue; }
-      const forgeAdj = buildingsById.get(v.forgeTarget.id)?.adjacencyBonus || 1.0;
-      const forgeOutpost = getOutpostBonus(room, v.forgeTarget.tx, v.forgeTarget.ty);
-      v.forgeTimer+=dt * forgeAdj * forgeOutpost;
-      if (v.forgeTimer>=CRAFT_TIME[tier]) {
-        v.forgeTimer=0;
-        const cost=CRAFT_COST[tier];
-        if (cost.stone) room.stone-=cost.stone;
-        if (cost.iron)  room.iron -=cost.iron;
-        room.toolStock[tier] += 3;
-        if (v.tier === 5) room.toolStock[tier] += 3; // Runesmith: double tool output
-        gainXP(room, v);
-        // Runesmith: buff nearest knight with runic weapons
-        if (v.tier === 5) {
-          let nearest = null, bestDist = 25;
-          for (const u of room.villagers) {
-            if (u.role !== VROLE.KNIGHT) continue;
-            const d = Math.hypot(u.x - v.x, u.y - v.y);
-            if (d < bestDist) { bestDist = d; nearest = u; }
+      } else {
+        let tier=-1;
+        for (let t=2;t>=1;t--) {
+          const cost=CRAFT_COST[t];
+          if (Object.entries(cost).every(([r,n])=>({wood:room.wood,stone:room.stone,iron:room.iron,food:room.food,crops:room.crops,gold:room.gold})[r]>=n)) {
+            tier=t; break;
           }
-          if (nearest) { nearest._runicBuff = 60; room.notify(`${v.name} runes ${nearest.name}'s weapon!`); }
         }
-        v.state='idle'; v.idleTimer=1+Math.random()*2;
+        if (tier<0) { v.state='idle'; v.idleTimer=4+Math.random()*4; continue; }
+        const forgeAdj = buildingsById.get(v.forgeTarget.id)?.adjacencyBonus || 1.0;
+        const forgeOutpost = getOutpostBonus(room, v.forgeTarget.tx, v.forgeTarget.ty);
+        v.forgeTimer+=dt * forgeAdj * forgeOutpost;
+        if (v.forgeTimer>=CRAFT_TIME[tier]) {
+          v.forgeTimer=0;
+          const cost=CRAFT_COST[tier];
+          if (cost.stone) room.stone-=cost.stone;
+          if (cost.iron)  room.iron -=cost.iron;
+          room.toolStock[tier] += 3;
+          if (v.tier === 5) room.toolStock[tier] += 3; // Runesmith: double tool output
+          gainXP(room, v);
+          if (v.tier === 5) {
+            let nearest = null, bestDist = 25;
+            for (const u of room.villagers) {
+              if (u.role !== VROLE.KNIGHT) continue;
+              const d = Math.hypot(u.x - v.x, u.y - v.y);
+              if (d < bestDist) { bestDist = d; nearest = u; }
+            }
+            if (nearest) { nearest._runicBuff = 60; room.notify(`${v.name} runes ${nearest.name}'s weapon!`); }
+          }
+          v.state='idle'; v.idleTimer=1+Math.random()*2;
+        }
+        continue;
       }
-      continue;
     }
 
     if (v.state === 'repairing') {
@@ -389,16 +422,23 @@ export function updateVillagers(room, dt) {
         v.repairTarget = null; v.state = 'idle'; v.idleTimer = 1 + Math.random()*2;
         continue;
       }
-      v.repairTimer += dt * workSpeed(v);
-      if (v.repairTimer >= REPAIR_TIME) {
-        v.repairTimer = 0;
-        if (room.stone >= REPAIR_STONE) {
-          room.stone -= REPAIR_STONE;
-          rb.hp = Math.min(rb.maxHp, rb.hp + REPAIR_RATE);
-          gainXP(room, v);
+      if (Math.hypot(v.x-(rb.tx+0.5), v.y-(rb.ty+0.5)) > 1.5) {
+        if (!v.path.length) {
+          const p=findPathCached(room,v,rb.tx,rb.ty,room.villagerBlocked);
+          if (p&&p.length>1) v.path=p.slice(1);
         }
+      } else {
+        v.repairTimer += dt * workSpeed(v);
+        if (v.repairTimer >= REPAIR_TIME) {
+          v.repairTimer = 0;
+          if (room.stone >= REPAIR_STONE) {
+            room.stone -= REPAIR_STONE;
+            rb.hp = Math.min(rb.maxHp, rb.hp + REPAIR_RATE);
+            gainXP(room, v);
+          }
+        }
+        continue;
       }
-      continue;
     }
 
     if (v.state === 'guarding') {
@@ -420,6 +460,13 @@ export function updateVillagers(room, dt) {
       const bld=buildingsById.get(v.buildTarget);
       if (!bld||bld.complete) {
         v.buildTarget=null; v.state='idle'; v.idleTimer=1+Math.random()*2;
+        continue;
+      }
+      if (Math.hypot(v.x-(bld.tx+0.5), v.y-(bld.ty+0.5)) > 1.5) {
+        if (!v.path.length) {
+          const p=findPathCached(room,v,bld.tx,bld.ty,room.villagerBlocked);
+          if (p&&p.length>1) v.path=p.slice(1);
+        }
       } else {
         bld.progress=Math.min(1, bld.progress+(1/STRUCT_BUILD_TIME[bld.type])*dt*workSpeed(v));
         if (bld.progress>=1) {
@@ -435,8 +482,33 @@ export function updateVillagers(room, dt) {
           v.buildTarget=null; v.state='idle'; v.idleTimer=1+Math.random()*2;
           gainXP(room, v);
         }
+        continue;
       }
-      continue;
+    }
+
+    if (v.state === 'clearing_ruin') {
+      const ruin = room.ruins?.find(r => r.id === v.ruinTarget?.id);
+      if (!ruin || ruin.cleared) {
+        v.ruinTarget = null; v.state = 'idle'; v.idleTimer = 1 + Math.random() * 2;
+        continue;
+      }
+      if (Math.hypot(v.x-(ruin.tx+0.5), v.y-(ruin.ty+0.5)) > 1.5) {
+        if (!v.path.length) {
+          const p=findPathCached(room,v,ruin.tx,ruin.ty,room.villagerBlocked);
+          if (p&&p.length>1) v.path=p.slice(1);
+        }
+      } else {
+        v.ruinTimer += dt;
+        if (v.ruinTimer >= 10) {
+          ruin.cleared = true;
+          for (const [res, amt] of Object.entries(ruin.reward)) room[res] = (room[res] || 0) + amt;
+          const rewardStr = Object.entries(ruin.reward).map(([r, a]) => `${a} ${r}`).join(', ');
+          room.notify(`Found ${rewardStr} clearing the ruins!`, 'info');
+          v.ruinTarget = null; v.state = 'idle'; v.idleTimer = 1 + Math.random() * 2;
+          gainXP(room, v);
+        }
+        continue;
+      }
     }
 
     if (isNight(room) && !v._goingSleep && (v.state==='idle'||v.state==='roaming')
@@ -582,6 +654,13 @@ export function updateVillagers(room, dt) {
               v.state='repairing'; v.repairTimer=0;
             } else {
               v.repairTarget=null; v.state='idle'; v.idleTimer=1+Math.random()*2;
+            }
+          } else if (v.ruinTarget !== null) {
+            const ruin = room.ruins?.find(r => r.id === v.ruinTarget.id);
+            if (ruin && !ruin.cleared && v.tx === ruin.tx && v.ty === ruin.ty) {
+              v.state = 'clearing_ruin'; v.ruinTimer = 0;
+            } else {
+              v.ruinTarget = null; v.state = 'idle'; v.idleTimer = 1 + Math.random() * 2;
             }
           } else if (v._seekBakery != null) {
             if (room.food > 0) { room.food=Math.max(0,room.food-1); v.hunger=Math.min(1,v.hunger+FEED_RESTORE); }
