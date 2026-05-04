@@ -58,6 +58,16 @@ function tileBaseColor(tx, ty, t, v, time) {
       const w=Math.sin(time*1.2+tx*0.55+ty*0.6)*13;
       return `rgb(${cl(40+w)},${cl(140+w)},${cl(202+w)})`;
     }
+    case T.SWAMP: {
+      const w=Math.sin(time*0.4+tx*0.22+ty*0.31)*7;
+      return `rgb(${cl(46+w)},${cl(68+w)},${cl(34+w)})`;
+    }
+    case T.DESERT: return tint(200,162, 72,s, v*0.11-0.055);
+    case T.TUNDRA: {
+      const TUNDRA_RGB = [[148,178,168],[144,172,164],[130,148,152],[162,185,195]];
+      const [tr,tg,tb] = TUNDRA_RGB[season] ?? TUNDRA_RGB[0];
+      return tint(tr,tg,tb,s, v*0.08-0.040);
+    }
   }
   return '#f0f';
 }
@@ -70,7 +80,7 @@ function buildTileColorCache() {
   for (let row = 0; row < MAP_H; row++) {
     for (let col = 0; col < MAP_W; col++) {
       const t = mapTiles[row][col];
-      if (t !== T.WATER && t !== T.DEEP && t !== T.RIVER) {
+      if (t !== T.WATER && t !== T.DEEP && t !== T.RIVER && t !== T.SWAMP) {
         _tileColorCache[row * MAP_W + col] = tileBaseColor(col, row, t, mapVariant[row][col], 0);
       }
     }
@@ -204,8 +214,75 @@ function drawDetails(tx, ty, t, sx, sy, sz, v, time) {
     for (const [px, py] of [[0.22,0.72],[0.52,0.68],[0.36,0.82],[0.70,0.75],[0.15,0.62]]) {
       const gx = sx + Math.floor(px * sz);
       const gy = sy + Math.floor(py * sz);
-      ctx.fillRect(gx, gy - ps * 2, ps, ps * 2);   // vertical blade
-      ctx.fillRect(gx + ps, gy - ps, ps, ps);       // lean right
+      ctx.fillRect(gx, gy - ps * 2, ps, ps * 2);
+      ctx.fillRect(gx + ps, gy - ps, ps, ps);
+    }
+  }
+
+  // ── Swamp: slow murky ripples + lily dots ─────────
+  else if (t === T.SWAMP && sz >= 10) {
+    const ps = Math.max(1, Math.ceil(sz * 0.055));
+    // Slow dark ripples
+    for (let i = 0; i < 2; i++) {
+      const p  = (time * 0.08 + tx * 0.19 + ty * 0.23 + i * 0.6) % 0.7;
+      const ry = sy + Math.floor(sz * (0.12 + p));
+      if (ry < sy || ry > sy + sz - ps) continue;
+      ctx.fillStyle = `rgba(0,0,0,0.14)`;
+      ctx.fillRect(sx + Math.floor(sz * 0.14), ry, Math.floor(sz * 0.72), ps);
+    }
+    // Lily pads
+    if (sz >= 18) {
+      ctx.fillStyle = 'rgba(48,96,28,0.55)';
+      for (let i = 0; i < 2; i++) {
+        const lx = sx + Math.floor((0.25 + ihash(tx + i*3, ty, 91) * 0.50) * sz);
+        const ly = sy + Math.floor((0.30 + ihash(tx, ty + i*3, 92) * 0.45) * sz);
+        const lr = Math.max(1, Math.floor(sz * 0.10));
+        ctx.beginPath(); ctx.arc(lx, ly, lr, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+  }
+
+  // ── Desert: wind-carved dune ripples ─────────────
+  else if (t === T.DESERT && sz >= 14) {
+    const ps = Math.max(1, Math.ceil(sz * 0.05));
+    ctx.fillStyle = 'rgba(140,90,20,0.18)';
+    for (let i = 0; i < 4; i++) {
+      const ry   = sy + Math.floor(sz * (0.15 + i * 0.20));
+      const barX = sx + Math.floor(sz * (0.06 + ihash(tx + i, ty, 77) * 0.22));
+      const barW = Math.floor(sz * (0.40 + ihash(tx, ty + i, 78) * 0.38));
+      ctx.fillRect(barX, ry, barW, ps);
+    }
+    // Occasional pebble cluster
+    if (ihash(tx, ty, 79) > 0.65 && sz >= 22) {
+      ctx.fillStyle = 'rgba(160,120,60,0.35)';
+      for (let i = 0; i < 3; i++) {
+        const px2 = sx + Math.floor((0.2 + ihash(tx*3+i, ty, 80) * 0.6) * sz);
+        const py2 = sy + Math.floor((0.5 + ihash(tx, ty*3+i, 81) * 0.35) * sz);
+        const pr  = Math.max(1, Math.floor(sz * 0.05));
+        ctx.fillRect(px2, py2, pr, pr);
+      }
+    }
+  }
+
+  // ── Tundra: frost crack lines + frozen grass ──────
+  else if (t === T.TUNDRA && sz >= 14) {
+    const ps = Math.max(1, Math.ceil(sz * 0.045));
+    // Frost cracks (polygon-ish lines)
+    ctx.fillStyle = 'rgba(200,220,230,0.22)';
+    for (let i = 0; i < 3; i++) {
+      const fx  = sx + Math.floor((0.1 + ihash(tx + i*7, ty, 61) * 0.8) * sz);
+      const fy  = sy + Math.floor((0.1 + ihash(tx, ty + i*7, 62) * 0.8) * sz);
+      const fw  = Math.floor(sz * (0.15 + ihash(tx+i, ty+i, 63) * 0.30));
+      ctx.fillRect(fx, fy, fw, ps);
+    }
+    // Sparse dead grass tufts
+    if (sz >= 20) {
+      ctx.fillStyle = 'rgba(180,170,140,0.35)';
+      for (const [px2, py2] of [[0.20,0.70],[0.55,0.65],[0.72,0.78]]) {
+        const gx = sx + Math.floor(px2 * sz);
+        const gy = sy + Math.floor(py2 * sz);
+        ctx.fillRect(gx, gy - ps * 2, ps, ps * 2);
+      }
     }
   }
 }
@@ -657,6 +734,7 @@ function render() {
   }
 
   drawAdjacencyShimmer(sz);
+  drawResourceNodes(sz, c0, r0, c1, r1);
   drawNightOverlay();
   if (season === 3) drawSnowOverlay();
   drawObjects();
