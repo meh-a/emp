@@ -47,6 +47,9 @@ export class Kingdom {
     this._defendRerouteTimer = 0;
     this._alertNotified    = false;
 
+    // ── King ─────────────────────────────────────────
+    this.king = null; // initialised when kingdom settles
+
     // ── Fog ──────────────────────────────────────────
     this.fogVisible  = new Uint8Array(MAP_W * MAP_H);
     this.fogExplored = new Uint8Array(MAP_W * MAP_H);
@@ -94,6 +97,8 @@ export class Kingdom {
       mapFertility:{ get: () => r.mapFertility,enumerable: true },
       trees:       { get: () => r.trees, set: v => { r.trees = v; }, enumerable: true },
       resourceNodes:     { get: () => r.resourceNodes, enumerable: true },
+      banditCamps:       { get: () => r.banditCamps,   enumerable: true },
+      ruins:             { get: () => r.ruins,          enumerable: true },
       regrowthQueue:     { get: () => r.regrowthQueue, set: v => { r.regrowthQueue = v; }, enumerable: true },
       enemyKingdomSites: { get: () => r.enemyKingdomSites, set: v => { r.enemyKingdomSites = v; }, enumerable: true },
       dayTime: { get: () => r.dayTime, enumerable: true },
