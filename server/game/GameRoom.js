@@ -1,12 +1,12 @@
 // ── server/game/GameRoom.js ──
 import { MAP_W, MAP_H, DAY_LENGTH, TC_HP_MAX, SEASON_LENGTH, SEASON_NAMES } from './constants.js';
 import { register as acRegister, login as acLogin, purchaseSlot as acPurchase, addGold as acAddGold } from './accounts.js';
-import { generate, generateTrees, preGenerateKingdomSites, WALKABLE_TILES } from './world.js';
+import { generate, generateTrees, preGenerateKingdomSites, WALKABLE_TILES, findPath } from './world.js';
 import { rebuildNavBlocked, placeBuilding, upgradeBuilding, scaledCost } from './buildings.js';
 import {
   initKingdom, updateVillagers, updateRegrowth,
   updateSpawning, updateGold, updateFeeding,
-  moveVillagerTo, upgradeBasicTo,
+  moveVillagerTo, upgradeBasicTo, updateKing,
 } from './villager-ai.js';
 import { updateCombat, updateBotKingdoms, initBotKingdoms } from './combat.js';
 import { updateNPCs, updateBandits, handleNPCAction } from './npcs.js';
@@ -240,6 +240,7 @@ export class GameRoom {
       updateSpawning(k, dt);
       updateGold(k, dt);
       updateFeeding(k, dt);
+      updateKing(k, dt);
     }
     _pb.villagers.push(_t() - _t0);
 
@@ -285,6 +286,21 @@ export class GameRoom {
   // ── Per-kingdom fog of war ─────────────────────────
   _updateFog(kingdom) {
     kingdom.fogVisible.fill(0);
+    // King reveals fog
+    if (kingdom.king && !kingdom.king._dead) {
+      const kx = Math.floor(kingdom.king.x), ky = Math.floor(kingdom.king.y);
+      const kr = FOG_RADIUS;
+      for (let dy = -kr; dy <= kr; dy++) {
+        for (let dx = -kr; dx <= kr; dx++) {
+          if (dx*dx + dy*dy > kr*kr) continue;
+          const nx = kx+dx, ny = ky+dy;
+          if (nx < 0 || nx >= MAP_W || ny < 0 || ny >= MAP_H) continue;
+          const ni = ny*MAP_W+nx;
+          kingdom.fogVisible[ni] = 1;
+          kingdom.fogExplored[ni] = 1;
+        }
+      }
+    }
     for (const v of kingdom.villagers) {
       const r  = v.role === 'Explorer' ? EXPLORER_FOG_RADIUS : FOG_RADIUS;
       const tx = Math.floor(v.x), ty = Math.floor(v.y);
@@ -349,6 +365,21 @@ export class GameRoom {
           break;
         }
         case 'wasd_move': {
+          // King WASD movement
+          if (data.villagerId === 'king') {
+            const king = kingdom.king;
+            if (!king || king._dead) break;
+            king.path = []; king.state = 'moving';
+            const _spd = 3.5, _dt = Math.min(data.dt || 0.016, 0.05);
+            const _nx = king.x + data.dx * _spd * _dt;
+            const _ny = king.y + data.dy * _spd * _dt;
+            const _xt = Math.floor(_nx), _yt = Math.floor(king.y);
+            if (_xt>=0&&_xt<MAP_W&&_yt>=0&&_yt<MAP_H&&WALKABLE_TILES.has(kingdom.mapTiles[_yt][_xt])) king.x=_nx;
+            const _xt2= Math.floor(king.x), _yt2=Math.floor(_ny);
+            if (_xt2>=0&&_xt2<MAP_W&&_yt2>=0&&_yt2<MAP_H&&WALKABLE_TILES.has(kingdom.mapTiles[_yt2][_xt2])) king.y=_ny;
+            king.tx = Math.floor(king.x); king.ty = Math.floor(king.y);
+            break;
+          }
           const wv = kingdom.villagers.find(v => v.id === data.villagerId);
           if (!wv) break;
           // Clear AI state so pathfinding doesn't fight manual control
@@ -469,6 +500,15 @@ export class GameRoom {
           }
           break;
         }
+        case 'king_move': {
+          const king = kingdom.king;
+          if (!king || king._dead) break;
+          const ktx = data.tx | 0, kty = data.ty | 0;
+          if (ktx < 0 || ktx >= MAP_W || kty < 0 || kty >= MAP_H) break;
+          const kPath = findPath(Math.floor(king.x), Math.floor(king.y), ktx, kty, kingdom.navBlocked, kingdom, 400);
+          if (kPath && kPath.length > 1) king.path = kPath.slice(1);
+          break;
+        }
         case 'quest_reward': {
           const qid = data.questId;
           if (!qid || kingdom.claimedQuests.has(qid)) break;
@@ -523,6 +563,15 @@ export class GameRoom {
       gameState:  k.gameState,
       alertMode:  k.alertMode,
       tier4Slots: k.tier4Slots, tier5Slots: k.tier5Slots,
+      // King
+      king: k.king ? {
+        x: k.king.x, y: k.king.y, tx: k.king.tx, ty: k.king.ty,
+        hp: k.king.hp, maxHp: k.king.maxHp,
+        state: k.king.state,
+        _dead: k.king._dead,
+        _respawnTimer: k.king._respawnTimer,
+        name: k.name,
+      } : null,
       // Entities
       villagers:      k.villagers.map(_stripVillager),
       buildings:      k.buildings,
