@@ -762,6 +762,10 @@ export function initKingdom(kingdom, cx, cy) {
   const roles = [VROLE.WOODCUTTER, VROLE.WOODCUTTER, VROLE.BUILDER, VROLE.KNIGHT, VROLE.FARMER, VROLE.BASIC];
   for (let i = 0; i < roles.length && i < chosen.length; i++)
     kingdom.villagers.push(mkVillager(kingdom, roles[i], chosen[i].x, chosen[i].y));
+
+  // Spawn king near the starting center
+  spawnKing(kingdom, cx | 0, cy | 0);
+
   kingdom.spawnTimer = 0; kingdom.goldTimer = 0; kingdom.feedTimer = 0;
   kingdom.navBlockedVersion = 0; kingdom._pfRound = 0; kingdom._pfCounter = 0;
 }
@@ -859,6 +863,89 @@ function _hasPrereq(room, newRole) {
   const reqType = UPGRADE_PREREQ[newRole];
   if (reqType === undefined) return true;
   return room.buildings.some(b => b.type === reqType && b.complete);
+}
+
+// ── King unit ─────────────────────────────────────────────────────
+export function spawnKing(kingdom, tx, ty) {
+  kingdom.king = {
+    x: tx + 0.5, y: ty + 0.5,
+    tx, ty,
+    hp: 120, maxHp: 120,
+    attackTimer: 0,
+    path: [],
+    state: 'idle',
+    _respawnTimer: 0,
+    _dead: false,
+  };
+}
+
+export function updateKing(kingdom, dt) {
+  const king = kingdom.king;
+  if (!king) return;
+
+  if (king._dead) {
+    king._respawnTimer -= dt;
+    if (king._respawnTimer <= 0) {
+      const tc = kingdom.townCenter;
+      if (tc) {
+        king.x = tc.tx + 0.5; king.y = tc.ty + 0.5;
+        king.tx = tc.tx; king.ty = tc.ty;
+      }
+      king.hp = king.maxHp;
+      king._dead = false;
+      king._respawnTimer = 0;
+      king.path = []; king.state = 'idle';
+      kingdom.gold = Math.max(0, kingdom.gold - 50);
+      kingdom.notify('Your king has returned.', 'info');
+    }
+    return;
+  }
+
+  // Check for death
+  if (king.hp <= 0) {
+    king._dead = true;
+    king._respawnTimer = 30;
+    king.path = [];
+    kingdom.notify('Your king has fallen! Respawning in 30s...', 'warn');
+    return;
+  }
+
+  // Auto-attack nearby enemies within range 1.8 tiles, damage 18, speed 1.2s
+  king.attackTimer = Math.max(0, king.attackTimer - dt);
+  if (king.attackTimer <= 0) {
+    let target = null, bestDist = 1.8;
+    for (const eu of kingdom.enemyUnits) {
+      if (eu._despawn) continue;
+      const d = Math.hypot(eu.x - king.x, eu.y - king.y);
+      if (d < bestDist) { bestDist = d; target = eu; }
+    }
+    if (target) {
+      target.hp = (target.hp || 0) - 18;
+      king.attackTimer = 1.2;
+      king.state = 'attacking';
+      if (target.hp <= 0) target._despawn = true;
+    } else if (king.path.length === 0) {
+      king.state = 'idle';
+    }
+  }
+
+  // Follow path
+  if (king.path.length > 0) {
+    king.state = 'moving';
+    const tgt = king.path[0];
+    const wtx = tgt.x + 0.5, wty = tgt.y + 0.5;
+    const dx = wtx - king.x, dy = wty - king.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const spd = VILLAGER_SPEED;
+    if (dist <= spd * dt + 0.01) {
+      king.x = wtx; king.y = wty; king.tx = tgt.x; king.ty = tgt.y;
+      king.path.shift();
+      if (king.path.length === 0) king.state = 'idle';
+    } else {
+      king.x += dx / dist * spd * dt;
+      king.y += dy / dist * spd * dt;
+    }
+  }
 }
 
 export function upgradeBasicTo(room, v, newRole) {
