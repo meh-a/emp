@@ -14,6 +14,7 @@ let _tileColorCache = null;
 let _vigGrad = null, _vigW = 0, _vigH = 0;
 let _lastCachedSeason = -1;
 
+
 function resize() { canvas.width = innerWidth; canvas.height = innerHeight; }
 resize();
 addEventListener('resize', resize);
@@ -711,11 +712,16 @@ function render() {
         ctx.fillRect(sx+sw-bv,sy,bv,sw);
       }
 
-      // Fog of war overlay
+      // Fog of war overlay — lerp alpha toward target, skip if fully clear
       const fi = row*MAP_W + col;
-      if (!fogVisible[fi]) {
-        ctx.fillStyle = fogExplored[fi] ? 'rgba(0,0,0,0.62)' : '#07050a';
-        ctx.fillRect(sx, sy, sw, sw);
+      {
+        const target = fogVisible[fi] ? 0.0 : fogExplored[fi] ? 0.62 : 1.0;
+        fogFadeLevel[fi] += (target - fogFadeLevel[fi]) * 0.03;
+        const a = fogFadeLevel[fi];
+        if (a > 0.01) {
+          ctx.fillStyle = a > 0.98 ? '#07050a' : `rgba(7,5,10,${a.toFixed(2)})`;
+          ctx.fillRect(sx, sy, sw, sw);
+        }
       }
     }
   }
