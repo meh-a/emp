@@ -587,7 +587,7 @@ function drawEnemyUnitChar(eu, px, py, sz) {
   ctx.fillRect(Math.floor(px-shW*0.5), Math.floor(py+sprSz*0.10), shW, Math.ceil(sprSz*0.10));
 
   const sprite = eu.role==='archer' ? VSPRITE.Archer[frame] : VSPRITE.Knight[frame];
-  const pal    = eu.role==='archer' ? ENEMY_ARC_PAL          : ENEMY_INF_PAL;
+  const pal    = eu.role==='archer' ? VPAL.Archer            : VPAL.Knight;
   drawSprite(sprite, pal, sprX, sprY, sprSz);
 
   // Enemy infantry sword swing
