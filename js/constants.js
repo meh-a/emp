@@ -68,6 +68,19 @@ let mapTemperature = [];  // Float32Array rows  (0..1, warm at center, cold at p
 let fogVisible  = new Uint8Array(MAP_W * MAP_H); // 1 = currently in vision
 let fogExplored = new Uint8Array(MAP_W * MAP_H); // 1 = ever visited
 
+// Fog fade (smooth fog transitions — feature #3)
+let fogFadeLevel  = new Float32Array(MAP_W * MAP_H); // 0=clear, 1=black
+fogFadeLevel.fill(1.0); // start all fogged
+
+// Fog decay (dynamic fog encroachment — feature #4)
+let fogDecayTimer = new Float32Array(MAP_W * MAP_H); // seconds since tile was last visible
+
+// King unit (feature #2)
+let kingData = null;
+
+// Camera lock — false = follow king; true = user panned manually
+let _cameraUnlocked = false;
+
 // ── Resources ──────────────────────────────────────
 let gold  = 100;
 let wood  = 0;
