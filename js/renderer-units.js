@@ -233,8 +233,6 @@ function drawEnemyBuildingObj(b, sz) {
     drawConnectedWall(b, sx, tsy, sz, true);
   } else {
     drawSpriteH(BSTAMP[b.type], BSTAMP_PAL[b.type], sx, sy, sz, bh);
-    ctx.fillStyle = 'rgba(180,20,20,0.28)';
-    ctx.fillRect(sx, sy, Math.ceil(sz), Math.ceil(bh));
   }
   if (b.hp < b.maxHp) drawHealthBar(sx, sy, b.hp, b.maxHp, sz);
 }
@@ -294,6 +292,110 @@ function drawEnemyTC(ek, sz) {
     ctx.strokeText(ek.name || 'Enemy Keep', sx+sz/2, ly);
     ctx.fillStyle = col || '#e06060';
     ctx.fillText(ek.name || 'Enemy Keep', sx+sz/2, ly);
+  }
+}
+
+// ═══════════════════════════════════════════════════
+//  KING RENDERING
+// ═══════════════════════════════════════════════════
+function drawKing(king, sz) {
+  if (!king) return;
+  const px = king.x * sz - camX;
+  const py = king.y * sz - camY;
+
+  if (king._dead) {
+    // Ghost translucent with respawn timer
+    const sprSz = Math.max(6, sz * 1.15);
+    const sprX  = px - sprSz * 0.5;
+    const sprY  = py - sprSz * 0.88;
+    ctx.globalAlpha = 0.3 + 0.15 * Math.sin(time * 3);
+    drawSprite(VSPRITE.Knight[0], VPAL.Knight, sprX, sprY, sprSz);
+    ctx.globalAlpha = 1.0;
+    if (sz >= 18) {
+      const secs = Math.ceil(king._respawnTimer);
+      const ly = Math.floor(sprY - 4);
+      ctx.font = `bold ${Math.max(8, sz * 0.13)}px 'Silkscreen',monospace`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+      ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+      ctx.strokeText(`${secs}s`, px, ly);
+      ctx.fillStyle = 'rgba(180,180,255,0.9)';
+      ctx.fillText(`${secs}s`, px, ly);
+      ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+    }
+    return;
+  }
+
+  const sprSz = Math.max(6, sz * 1.25); // slightly larger than villagers
+  const sprX  = px - sprSz * 0.5;
+  const sprY  = py - sprSz * 0.88;
+
+  // Walking animation — alternate frame while moving or attacking
+  const moving = king.state === 'moving' || king.state === 'attacking';
+  const frame  = (moving && Math.floor(time * 5) % 2 === 1) ? 1 : 0;
+
+  // Golden glow beneath king
+  const glowR = Math.max(6, sz * 0.9);
+  const ggrad = ctx.createRadialGradient(px, py, 0, px, py, glowR);
+  ggrad.addColorStop(0, 'rgba(255,200,50,0.28)');
+  ggrad.addColorStop(1, 'rgba(255,200,50,0)');
+  ctx.fillStyle = ggrad;
+  ctx.beginPath(); ctx.arc(px, py, glowR, 0, Math.PI * 2); ctx.fill();
+
+  // Shadow
+  const shW = Math.ceil(sprSz * 0.55);
+  ctx.fillStyle = 'rgba(0,0,0,0.28)';
+  ctx.fillRect(Math.floor(px - shW * 0.5), Math.floor(py + sprSz * 0.10), shW, Math.ceil(sprSz * 0.10));
+
+  // Knight sprite with walking animation
+  drawSprite(VSPRITE.Knight[frame], VPAL.Knight, sprX, sprY, sprSz);
+
+  // Gold crown above head
+  let crownTop = sprY; // track topmost element for stacking HP bar and name above it
+  if (sz >= 12) {
+    const crownY = Math.floor(sprY - sprSz * 0.08);
+    const crownW = Math.max(4, Math.floor(sprSz * 0.52));
+    const crownH = Math.max(3, Math.floor(sprSz * 0.22));
+    const crownX = Math.floor(px - crownW * 0.5);
+    ctx.fillStyle = '#f5c842';
+    ctx.fillRect(crownX, crownY - crownH * 0.5 | 0, crownW, crownH * 0.5 | 0);
+    const pts = 3, ptW = Math.floor(crownW / pts);
+    for (let i = 0; i < pts; i++) {
+      const bx2 = crownX + i * ptW;
+      ctx.beginPath();
+      ctx.moveTo(bx2, crownY - crownH * 0.5 | 0);
+      ctx.lineTo(bx2 + ptW * 0.5, crownY - crownH);
+      ctx.lineTo(bx2 + ptW, crownY - crownH * 0.5 | 0);
+      ctx.fill();
+    }
+    ctx.fillStyle = '#e04040';
+    const gemR = Math.max(1, Math.floor(sprSz * 0.04));
+    ctx.beginPath();
+    ctx.arc(px, crownY - crownH * 0.85 | 0, gemR, 0, Math.PI * 2);
+    ctx.fill();
+    crownTop = crownY - crownH - 2;
+  }
+
+  // HP bar above the crown
+  const barH   = Math.max(2, sprSz * 0.07);
+  const barY   = crownTop - barH - 2;
+  const barPct = king.hp / king.maxHp;
+  const r = cl(220 - barPct * 100), g = cl(barPct * 210);
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.fillRect(Math.floor(sprX), Math.floor(barY), Math.ceil(sprSz), Math.ceil(barH));
+  ctx.fillStyle = `rgb(${r},${g},20)`;
+  ctx.fillRect(Math.floor(sprX), Math.floor(barY), Math.ceil(sprSz * barPct), Math.ceil(barH));
+
+  // Kingdom name above HP bar
+  if (sz >= 16 && king.name) {
+    const fs  = Math.max(7, Math.floor(sz * 0.13));
+    const ly  = Math.floor(barY - 2);
+    ctx.font  = `bold ${fs}px 'Silkscreen',monospace`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+    ctx.strokeText(king.name, px, ly);
+    ctx.fillStyle = 'rgba(255,210,60,0.98)';
+    ctx.fillText(king.name, px, ly);
+    ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
   }
 }
 
@@ -393,6 +495,15 @@ function drawObjects() {
     if (eu.x < c0-1 || eu.x > c1+1 || eu.y < r0-1 || eu.y > r1+1) continue;
     objs.push({k:5, sortY: eu.y, d: eu});
   }
+  // King
+  if (typeof kingData !== 'undefined' && kingData) {
+    const kx = kingData._dead ? (kingData.tx ?? Math.floor(kingData.x)) : kingData.x;
+    const ky = kingData._dead ? (kingData.ty ?? Math.floor(kingData.y)) : kingData.y;
+    if (kx >= c0-1 && kx <= c1+1 && ky >= r0-1 && ky <= r1+1) {
+      objs.push({k:12, sortY: ky + 0.001, d: kingData}); // slightly in front of villagers
+    }
+  }
+
   for (const ek of enemyKingdoms) {
     if (ek.hp > 0) {
       const fi = ek.ty*MAP_W + ek.tx;
@@ -426,9 +537,10 @@ function drawObjects() {
     else if (k===9)  drawBanditChar(d, d.x*sz-camX, d.y*sz-camY, sz);
     else if (k===10) drawBanditCamp(d, d.tx*sz-camX, d.ty*sz-camY, sz);
     else if (k===11) drawRuin(d, d.tx*sz-camX, d.ty*sz-camY, sz);
-    else if (k===6) drawEnemyTC(d, sz);
-    else if (k===7) drawEnemyBuildingObj(d, sz);
-    else            drawEnemyVillagerChar(d, d.x*sz-camX, d.y*sz-camY, sz, obj.ekIsPlayer, obj.ekId);
+    else if (k===6)  drawEnemyTC(d, sz);
+    else if (k===7)  drawEnemyBuildingObj(d, sz);
+    else if (k===12) drawKing(d, sz);
+    else             drawEnemyVillagerChar(d, d.x*sz-camX, d.y*sz-camY, sz, obj.ekIsPlayer, obj.ekId);
   }
 }
 
@@ -451,7 +563,7 @@ function drawEnemyUnitChar(eu, px, py, sz) {
   ctx.fillRect(Math.floor(px-shW*0.5), Math.floor(py+sprSz*0.10), shW, Math.ceil(sprSz*0.10));
 
   const sprite = eu.role==='archer' ? VSPRITE.Archer[frame] : VSPRITE.Knight[frame];
-  const pal    = eu.role==='archer' ? ENEMY_ARC_PAL          : ENEMY_INF_PAL;
+  const pal    = eu.role==='archer' ? VPAL.Archer            : VPAL.Knight;
   drawSprite(sprite, pal, sprX, sprY, sprSz);
 
   // Hit flash
