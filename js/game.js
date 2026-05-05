@@ -182,8 +182,60 @@ function updateVillagerPanel() {
 // ═══════════════════════════════════════════════════
 //  FOG OF WAR
 // ═══════════════════════════════════════════════════
+// Track buildings count for fog-immune set rebuild
+let _fogImmuneBuildCount = -1;
+let _fogImmuneSet = new Set();
+
+function _rebuildFogImmuneSet() {
+  _fogImmuneBuildCount = buildings.length;
+  _fogImmuneSet.clear();
+  const R = 8;
+  for (const b of buildings) {
+    if (!b.complete) continue;
+    for (let dy = -R; dy <= R; dy++) {
+      for (let dx = -R; dx <= R; dx++) {
+        const nx = b.tx + dx, ny = b.ty + dy;
+        if (nx < 0 || nx >= MAP_W || ny < 0 || ny >= MAP_H) continue;
+        _fogImmuneSet.add(ny * MAP_W + nx);
+      }
+    }
+  }
+  // Town center is also immune
+  if (townCenter) {
+    const R2 = 8;
+    for (let dy = -R2; dy <= R2; dy++) {
+      for (let dx = -R2; dx <= R2; dx++) {
+        const nx = townCenter.tx + dx, ny = townCenter.ty + dy;
+        if (nx < 0 || nx >= MAP_W || ny < 0 || ny >= MAP_H) continue;
+        _fogImmuneSet.add(ny * MAP_W + nx);
+      }
+    }
+  }
+}
+
+let _lastFogTickTime = 0;
+
 function updateFog() {
   fogVisible.fill(0);
+
+  // King fog reveal
+  if (kingData && !kingData._dead) {
+    const kx = Math.round(kingData.x), ky = Math.round(kingData.y);
+    const kr = FOG_RADIUS;
+    for (let dy = -kr; dy <= kr; dy++) {
+      const ty = ky + dy;
+      if (ty < 0 || ty >= MAP_H) continue;
+      const maxDx = Math.floor(Math.sqrt(kr*kr - dy*dy));
+      for (let dx = -maxDx; dx <= maxDx; dx++) {
+        const tx = kx + dx;
+        if (tx < 0 || tx >= MAP_W) continue;
+        const idx = ty * MAP_W + tx;
+        fogVisible[idx] = 1;
+        fogExplored[idx] = 1;
+      }
+    }
+  }
+
   for (const v of villagers) {
     const vx = Math.round(v.x), vy = Math.round(v.y);
     const vr = v.role === VROLE.EXPLORER ? EXPLORER_FOG_RADIUS : FOG_RADIUS;
@@ -229,6 +281,19 @@ function updateFog() {
     }
   }
 
+  // Feature #4: update fog decay timers
+  const now = performance.now();
+  const tickDt = Math.min(0.2, (now - _lastFogTickTime) / 1000);
+  _lastFogTickTime = now;
+  if (_fogImmuneBuildCount !== buildings.length) _rebuildFogImmuneSet();
+  for (let fi = 0; fi < MAP_W * MAP_H; fi++) {
+    if (fogVisible[fi]) {
+      fogDecayTimer[fi] = 0;
+    } else if (fogExplored[fi] && !_fogImmuneSet.has(fi)) {
+      fogDecayTimer[fi] += tickDt;
+      if (fogDecayTimer[fi] > 60) { fogExplored[fi] = 0; fogDecayTimer[fi] = 0; }
+    }
+  }
 }
 
 // ═══════════════════════════════════════════════════
@@ -346,6 +411,7 @@ addEventListener('keydown', e=>{
     } else {
       for (const v of villagers) v.selected=false;
       activeGroup=null; selectedVillager=null;
+      _cameraUnlocked=false; // re-lock camera to king on Escape
       updateVillagerPanel();
     }
   }
@@ -427,7 +493,6 @@ mmCanvas.addEventListener('click', e=>{
   const sz=TILE_SZ*zoom;
   camTargetX=Math.max(0,Math.min(MAP_W*sz-canvas.width,  mx*MAP_W*sz - canvas.width/2));
   camTargetY=Math.max(0,Math.min(MAP_H*sz-canvas.height, my*MAP_H*sz - canvas.height/2));
-  cameraFollow=false;
 });
 
 // Villager selection / movement via left-click
@@ -508,15 +573,36 @@ function handleCanvasClick(cx, cy) {
   }
 
   if (selectedVillager) {
-    // Check for ruin click — send villager to clear it
+    // Ruin clear — villager-specific action, keep selection
     const clickedRuin = ruins.find(r => !r.cleared && r.discovered && r.tx === tx && r.ty === ty);
     if (clickedRuin) {
       netSend({ type: 'clear_ruin', villagerId: selectedVillager.id, ruinId: clickedRuin.id });
-      cameraFollow=false;
       return;
     }
+    // Clicking the king re-locks camera and deselects villager
+    if (kingData && !kingData._dead && Math.hypot(wx - kingData.x, wy - kingData.y) < 0.7) {
+      selectedVillager.selected = false;
+      selectedVillager = null;
+      closeBuildingPanel(); updateVillagerPanel();
+      _cameraUnlocked = false;
+      return;
+    }
+    // Otherwise send selected villager to target tile
     netSend({ type: 'move_villager', villagerId: selectedVillager.id, tx, ty });
-    cameraFollow=false;
+    return;
+  }
+
+  // Click the king to re-lock camera
+  if (kingData && !kingData._dead && Math.hypot(wx - kingData.x, wy - kingData.y) < 0.7) {
+    _cameraUnlocked = false;
+    return;
+  }
+
+  // Empty ground — move king there
+  const clickedTree = trees.find(t => t.tx === tx && t.ty === ty);
+  if (!clickedTree && kingData && !kingData._dead) {
+    netSend({ type: 'king_move', tx, ty });
+    _cameraUnlocked = false;
     return;
   }
 
@@ -580,6 +666,7 @@ canvas.addEventListener('touchmove', e => {
     const dy = t.clientY - _touch1.y;
     if (Math.hypot(dx, dy) > TAP_MOVE_THRESH) {
       _touchMoved = true;
+      _cameraUnlocked = true;
       clearTimeout(_longPressTimer); _longPressTimer = null;
     }
     if (placingType === 8) {
@@ -672,6 +759,18 @@ function clamp() {
 // ═══════════════════════════════════════════════════
 //  GAME LOOP
 // ═══════════════════════════════════════════════════
+// ── King camera follow state ───────────────────────────────────────
+let _kingCamTargetX = null, _kingCamTargetY = null;
+
+function updateKingCameraFollow(dt) {
+  if (!kingData || kingData._dead || _cameraUnlocked) return;
+  if (possessedVillager) return; // possession has its own camera
+  const sz = TILE_SZ * zoom;
+  _kingCamTargetX = kingData.x * sz - canvas.width  / 2;
+  _kingCamTargetY = kingData.y * sz - canvas.height / 2;
+  cameraFollow = false; // king follow takes priority over centroid follow
+}
+
 function update(dt) {
   // zoom is now fixed — no scroll handler changes it
 
@@ -696,31 +795,34 @@ function update(dt) {
   if (keys['w'] || keys['arrowup'])    inputY -= 1;
   if (keys['s'] || keys['arrowdown'])  inputY += 1;
 
-  const _wasdTarget = (possessedVillager && !possessedVillager._despawn)
-    ? possessedVillager
-    : (selectedVillager && !selectedVillager._despawn ? selectedVillager : null);
-
-  if (_wasdTarget) {
+  // Possessed villager: WASD moves that unit and camera follows it
+  if (possessedVillager && !possessedVillager._despawn) {
     if (inputX !== 0 || inputY !== 0) {
       const len = Math.sqrt(inputX * inputX + inputY * inputY);
-      const dx = inputX / len, dy = inputY / len;
-      netSend({ type: 'wasd_move', villagerId: _wasdTarget.id, dx, dy, dt: Math.min(dt, 0.05) });
+      netSend({ type: 'wasd_move', villagerId: possessedVillager.id, dx: inputX/len, dy: inputY/len, dt: Math.min(dt, 0.05) });
     }
-    // Camera follows the controlled villager
     const sz = TILE_SZ * zoom;
     const alpha = 1 - Math.pow(0.5, dt * 14);
-    camX += (_wasdTarget.x * sz - canvas.width  / 2 - camX) * alpha;
-    camY += (_wasdTarget.y * sz - canvas.height / 2 - camY) * alpha;
+    camX += (possessedVillager.x * sz - canvas.width  / 2 - camX) * alpha;
+    camY += (possessedVillager.y * sz - canvas.height / 2 - camY) * alpha;
     clamp();
     camVX = 0; camVY = 0;
+  } else if (kingData && !kingData._dead) {
+    // WASD moves the king; camera follow handles centering
+    if (inputX !== 0 || inputY !== 0) {
+      const len = Math.sqrt(inputX * inputX + inputY * inputY);
+      netSend({ type: 'wasd_move', villagerId: 'king', dx: inputX/len, dy: inputY/len, dt: Math.min(dt, 0.05) });
+      _cameraUnlocked = false; // keep camera on king while moving
+    }
+    camVX = 0; camVY = 0;
   } else {
+    // No king yet (pre-settle) — WASD pans camera freely
     if (inputX !== 0 || inputY !== 0) {
       const len = Math.sqrt(inputX*inputX + inputY*inputY);
       camVX += (inputX/len) * PAN_ACCEL * dt;
       camVY += (inputY/len) * PAN_ACCEL * dt;
       const spd = Math.sqrt(camVX*camVX + camVY*camVY);
       if (spd > PAN_PX) { camVX = camVX/spd*PAN_PX; camVY = camVY/spd*PAN_PX; }
-      cameraFollow = false; camTargetX = null;
     } else {
       const decay = Math.pow(0.001, dt * PAN_FRIC / 10);
       camVX *= decay; camVY *= decay;
@@ -730,6 +832,21 @@ function update(dt) {
   }
 
   updateCameraFollow(dt);
+  updateKingCameraFollow(dt);
+
+  // Apply king camera target with lerp
+  if (_kingCamTargetX !== null && !_cameraUnlocked) {
+    const sz = TILE_SZ * zoom;
+    const maxX = Math.max(0, MAP_W*sz - canvas.width);
+    const maxY = Math.max(0, MAP_H*sz - canvas.height);
+    const tx = Math.max(0, Math.min(maxX, _kingCamTargetX));
+    const ty = Math.max(0, Math.min(maxY, _kingCamTargetY));
+    const alpha = 1 - Math.pow(0.5, dt * 8);
+    camX += (tx - camX) * alpha;
+    camY += (ty - camY) * alpha;
+    clamp();
+  }
+
   updateCombatVisuals(dt);
   updateHUD();
   checkQuests(dt);
