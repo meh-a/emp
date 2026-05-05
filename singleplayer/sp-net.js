@@ -55,7 +55,7 @@ function netConnect(playerName) {
 
   return new Promise(resolve => {
     _seedResolve = resolve;
-    _worker = new Worker('singleplayer/sp-worker.js', { type: 'module' });
+    _worker = new Worker(`singleplayer/sp-worker.js?v=20250504p`, { type: 'module' });
     _worker.onmessage = (e) => {
       let msg;
       try { msg = JSON.parse(e.data); } catch { return; }
@@ -140,6 +140,55 @@ function _handleServerMessage(msg) {
       if (sub) sub.textContent = 'Loading ' + short + '…';
       break;
     }
+    case 'perf_stats': {
+      const el = document.getElementById('worker-perf');
+      if (el) {
+        // Find the dominant section (highest avg) for spike attribution
+        const sections = [
+          { k: 'villagers', label: 'ai' },
+          { k: 'nav',       label: 'nav' },
+          { k: 'combat',    label: 'cbt' },
+          { k: 'fog',       label: 'fog' },
+          { k: 'bots',      label: 'bot' },
+          { k: 'broadcast', label: 'bc'  },
+        ];
+        let topLabel = '', topAvg = 0, topMax = 0;
+        const parts = [];
+        for (const s of sections) {
+          const d = msg[s.k];
+          if (!d) continue;
+          parts.push(`${s.label}:${d.avg}`);
+          if (d.avg > topAvg) { topAvg = d.avg; topLabel = s.label; }
+          if (d.max > topMax) { topMax = d.max; }
+        }
+        el.textContent = `sim avg:${msg.avgMs}ms max:${msg.maxMs}ms`;
+        el.title = `Budget: ${msg.pct}% of 100ms\n` +
+          `Worst spike section: ${topLabel || '?'} (max ${topMax}ms)\n` +
+          parts.join('  ');
+        // Color by overall budget usage
+        const hot = msg.pct > 60, warm = msg.pct > 30;
+        el.style.color       = hot ? '#c07050' : warm ? '#c8a050' : '#608060';
+        el.style.borderColor = hot ? 'rgba(180,80,50,0.35)' : warm ? 'rgba(200,146,42,0.28)' : 'rgba(80,140,50,0.28)';
+
+        // Show breakdown below the main line
+        let breakdown = document.getElementById('worker-perf-breakdown');
+        if (!breakdown) {
+          breakdown = document.createElement('div');
+          breakdown.id = 'worker-perf-breakdown';
+          breakdown.style.cssText = 'font-size:10px;opacity:0.75;margin-top:2px;line-height:1.4;white-space:pre';
+          el.appendChild(breakdown);
+        }
+        const rows = sections.map(s => {
+          const d = msg[s.k];
+          if (!d) return '';
+          const bar = '█'.repeat(Math.min(10, Math.round(d.avg * 2)));
+          const spike = d.max > d.avg * 2.5 ? ` ⚡${d.max}` : '';
+          return `${s.label.padEnd(3)} ${String(d.avg).padStart(5)}ms ${bar}${spike}`;
+        }).filter(Boolean);
+        breakdown.textContent = rows.join('\n');
+      }
+      break;
+    }
     case '_error':
       console.error('[sp-worker error]', msg.message, msg.stack);
       document.getElementById('loading-sub').textContent = 'Error: ' + msg.message;
@@ -148,6 +197,8 @@ function _handleServerMessage(msg) {
 }
 
 // ── Interpolation ─────────────────────────────────────────────────
+let _lastKingStateTime = 0;
+
 function _attachInterp(arr, snap) {
   for (const e of arr) {
     const prev = snap.get(e.id);
@@ -169,6 +220,11 @@ function advanceInterp() {
   for (const e of enemyUnits) _lerpEntity(e, t);
   for (const e of npcs)       _lerpEntity(e, t);
   for (const e of bandits)    _lerpEntity(e, t);
+  if (typeof kingData !== 'undefined' && kingData && kingData._fromX !== undefined) {
+    const kt = Math.min(1, (performance.now() - _lastKingStateTime) / 100);
+    kingData.x = kingData._fromX + (kingData._toX - kingData._fromX) * kt;
+    kingData.y = kingData._fromY + (kingData._toY - kingData._fromY) * kt;
+  }
   const sz = TILE_SZ * zoom;
   const wx0 = camX / sz - 1, wx1 = (camX + canvas.width)  / sz + 1;
   const wy0 = camY / sz - 1, wy1 = (camY + canvas.height) / sz + 1;
@@ -274,6 +330,26 @@ function _applyState(s) {
   if (s.events) {
     for (const ev of s.events) {
       if (ev.type === 'chat') _chatReceive(ev.name, ev.text);
+    }
+  }
+
+  // King
+  if (s.king !== undefined) {
+    if (s.king) {
+      if (!kingData) {
+        kingData = s.king;
+      } else {
+        const prev = kingData;
+        kingData = s.king;
+        if (!kingData._dead && !prev._dead && Math.hypot(kingData.x - prev.x, kingData.y - prev.y) < 6) {
+          kingData._fromX = prev.x; kingData._fromY = prev.y;
+          kingData._toX   = s.king.x; kingData._toY = s.king.y;
+          kingData.x = prev.x; kingData.y = prev.y;
+        }
+      }
+      _lastKingStateTime = performance.now();
+    } else {
+      kingData = null;
     }
   }
 
@@ -660,6 +736,12 @@ function closeChat() {
 function _sendChat() {
   const input = document.getElementById('chat-input');
   const text  = (input.value || '').trim();
+  if (text === '/dev') {
+    const el = document.getElementById('worker-perf');
+    if (el) el.style.display = el.style.display === 'none' ? '' : 'none';
+    closeChat();
+    return;
+  }
   if (text) {
     _chatReceive('You', text);
     netSend({ type: 'chat', text });
