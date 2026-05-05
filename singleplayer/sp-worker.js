@@ -69,7 +69,7 @@ self.onmessage = async (e) => {
     }
 
     // Second pass: import (v param busts module cache on redeploy)
-    const _v = `?v=20250503c`;
+    const _v = `?v=20250504p`;
     for (const m of mods) {
       await import(new URL(m, import.meta.url).href + _v);
     }
@@ -152,6 +152,47 @@ self.onmessage = async (e) => {
     self.postMessage(JSON.stringify(initMsg));
 
     room.start();
+
+    // ── Tick CPU profiling ────────────────────────────────────────
+    {
+      const _origTick = room._tick.bind(room);
+      const _samples  = [];
+      let   _nextReport = 0;
+
+      function _sectionStats(arr) {
+        if (!arr.length) return { avg: 0, max: 0 };
+        const avg = arr.reduce((s, v) => s + v, 0) / arr.length;
+        return { avg: +avg.toFixed(2), max: +Math.max(...arr).toFixed(2) };
+      }
+
+      room._tick = function () {
+        const t0 = performance.now();
+        _origTick();
+        const ms = performance.now() - t0;
+        _samples.push(ms);
+        if (_samples.length > 60) _samples.shift();
+        const now = Date.now();
+        if (now >= _nextReport) {
+          _nextReport = now + 2000;
+          const avg = _samples.reduce((s, v) => s + v, 0) / _samples.length;
+          const max = Math.max(..._samples);
+          const pb  = room._perfBreakdown;
+          self.postMessage(JSON.stringify({
+            type:      'perf_stats',
+            avgMs:     +avg.toFixed(1),
+            maxMs:     +max.toFixed(1),
+            pct:       Math.min(999, Math.round(avg)),
+            villagers: _sectionStats(pb.villagers),
+            nav:       _sectionStats(pb.nav),
+            combat:    _sectionStats(pb.combat),
+            bots:      _sectionStats(pb.bots),
+            fog:       _sectionStats(pb.fog),
+            broadcast: _sectionStats(pb.broadcast),
+          }));
+        }
+      };
+    }
+
   } catch (err) {
     self.postMessage(JSON.stringify({ type: '_error', message: err.message, stack: err.stack }));
     console.error('[sp-worker]', err);
@@ -240,6 +281,7 @@ function _serializeKingdom(k) {
     buildCounts: Array.from(k.buildCounts || []),
     settled:    k.settled,
     townCenter: k.townCenter ? { ...k.townCenter } : null,
+    king:       k.king ? { ...k.king, path: [] } : null,
     villagers:  k.villagers.map(_serializeVillager),
     buildings:  k.buildings.map(b => ({ ...b })),
     roadTiles:  Array.from(k.roadTiles),
@@ -375,6 +417,7 @@ function _restoreKingdom(k, sk, rebuildNavBlocked) {
   k.alertMode     = sk.alertMode     || false;
   k._eid          = sk._eid || 0;
   k._pid          = sk._pid || 0;
+  k.king          = sk.king ? { ...sk.king, path: [], attackTimer: sk.king.attackTimer || 0 } : null;
 
   // Restore fog-explored map
   if (sk.fogExplored) {
