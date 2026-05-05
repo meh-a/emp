@@ -162,6 +162,8 @@ function _attachInterp(arr, snap) {
   }
 }
 
+let _lastKingStateTime = 0;
+
 // Called every animation frame — curves x/y toward _toX/_toY using Catmull-Rom.
 function advanceInterp() {
   const t = Math.min(1, (performance.now() - _lastStateTime) / 100);
@@ -169,6 +171,11 @@ function advanceInterp() {
   for (const e of enemyUnits) _lerpEntity(e, t);
   for (const e of npcs)       _lerpEntity(e, t);
   for (const e of bandits)    _lerpEntity(e, t);
+  if (kingData && kingData._fromX !== undefined) {
+    const kt = Math.min(1, (performance.now() - _lastKingStateTime) / 100);
+    kingData.x = kingData._fromX + (kingData._toX - kingData._fromX) * kt;
+    kingData.y = kingData._fromY + (kingData._toY - kingData._fromY) * kt;
+  }
   // Enemy kingdom villagers — only lerp those currently on screen
   const sz = TILE_SZ * zoom;
   const wx0 = camX / sz - 1, wx1 = (camX + canvas.width)  / sz + 1;
@@ -294,6 +301,27 @@ function _applyState(s) {
   if (s.events) {
     for (const ev of s.events) {
       if (ev.type === 'chat') _chatReceive(ev.name, ev.text);
+    }
+  }
+
+  // King
+  if (s.king !== undefined) {
+    if (s.king) {
+      if (!kingData) {
+        kingData = s.king;
+      } else {
+        // Interpolate king smoothly like villagers
+        const prev = kingData;
+        kingData = s.king;
+        if (!kingData._dead && !prev._dead && Math.hypot(kingData.x - prev.x, kingData.y - prev.y) < 6) {
+          kingData._fromX = prev.x; kingData._fromY = prev.y;
+          kingData._toX   = s.king.x; kingData._toY = s.king.y;
+          kingData.x = prev.x; kingData.y = prev.y;
+        }
+      }
+      _lastKingStateTime = performance.now();
+    } else {
+      kingData = null;
     }
   }
 
